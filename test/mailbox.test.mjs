@@ -214,15 +214,30 @@ test('profile lock is an OS lock: serializes processes and configuration, and is
   assert.throws(() => f.a.configure({ inbox: join(f.root, 'a-in'), outbox: join(f.root, 'a-out') }), /Another/,
     'exchange configuration is serialized with mutations');
   release();
-  // Another process takes the lock and is killed without cleanup.
-  const holder = spawn(process.execPath, ['--input-type=module', '-e',
+  // Another process takes the lock and is killed without cleanup. The holder keeps the release
+  // handle reachable (as every product caller does) and forces garbage collection before it reports
+  // ready: a dropped handle lets the lock database be finalized, which releases the OS lock.
+  const holder = spawn(process.execPath, ['--expose-gc', '--input-type=module', '-e',
     `import { Profile } from ${JSON.stringify(new URL('../dist/local.js', import.meta.url).href)};
-     const p = new Profile(${JSON.stringify(join(f.root, 'alice'))}); p.lock(); console.log('held'); setInterval(() => {}, 1000);`],
+     const p = new Profile(${JSON.stringify(join(f.root, 'alice'))}); globalThis.release = p.lock();
+     gc(); gc(); console.log('held'); setInterval(() => {}, 1000);`],
     { stdio: ['ignore', 'pipe', 'inherit'] });
-  await new Promise(resolve => holder.stdout.once('data', resolve));
+  const exited = new Promise(resolve => holder.once('exit', (code, signal) => resolve({ code, signal })));
+  // Always reap the exact child, even when an assertion below fails.
+  t.after(async () => {
+    if (holder.exitCode === null && holder.signalCode === null) holder.kill('SIGKILL');
+    await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 5_000).unref())]);
+  });
+  const bounded = (promise, ms, what) => Promise.race([promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`timed out waiting for ${what}`)), ms).unref())]);
+  await bounded(new Promise((resolve, reject) => {
+    holder.stdout.once('data', resolve);
+    holder.once('error', reject);
+    exited.then(({ code, signal }) => reject(new Error(`holder exited before holding the lock (${code ?? signal})`)));
+  }), 15_000, 'the holder to take the lock');
   await assert.rejects(async () => f.a.execute(await plan(f.a, randomUUID(), create())), /Another/);
   holder.kill('SIGKILL');
-  await new Promise(resolve => holder.once('exit', resolve));
+  assert.equal((await bounded(exited, 15_000, 'the holder to exit')).signal, 'SIGKILL');
   assert.equal((await f.a.execute(await plan(f.a, randomUUID(), create()))).recorded, true);
 });
 
