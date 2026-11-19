@@ -1,0 +1,82 @@
+{
+  "events": 10,
+  "liveness": "not-evaluated",
+  "principals": [
+    "principal-1",
+    "principal-2"
+  ],
+  "protocol": 2,
+  "requests": [
+    {
+      "accepted": {
+        "confirmation": "id-1",
+        "context": "digest-1"
+      },
+      "category": "review",
+      "confirmation": "id-1",
+      "context": {
+        "digest": "digest-1",
+        "revision": 3
+      },
+      "gaps": [],
+      "id": "id-2",
+      "negotiation": [
+        {
+          "actor": "principal-2",
+          "context": 1,
+          "id": "id-3",
+          "kind": "ask"
+        },
+        {
+          "actor": "principal-1",
+          "context": 2,
+          "id": "id-4",
+          "kind": "supply"
+        },
+        {
+          "actor": "principal-1",
+          "context": 3,
+          "id": "id-5",
+          "kind": "supply"
+        },
+        {
+          "actor": "principal-2",
+          "context": 3,
+          "id": "id-1",
+          "kind": "confirm"
+        }
+      ],
+      "open": null,
+      "recipient": "principal-2",
+      "replies": [
+        {
+          "actor": "principal-2",
+          "id": "id-6"
+        }
+      ],
+      "requester": "principal-1",
+      "result": "id-6",
+      "revision": 8,
+      "state": "completed"
+    },
+    {
+      "accepted": null,
+      "category": "task",
+      "confirmation": null,
+      "context": {
+        "digest": "digest-2",
+        "revision": 1
+      },
+      "gaps": [],
+      "id": "id-7",
+      "negotiation": [],
+      "open": null,
+      "recipient": "principal-2",
+      "replies": [],
+      "requester": "principal-1",
+      "result": null,
+      "revision": 2,
+      "state": "canceled"
+    }
+  ]
+}

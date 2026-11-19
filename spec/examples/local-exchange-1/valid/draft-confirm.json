@@ -1,0 +1,6 @@
+{
+  "action": "confirm",
+  "request": "00000000-0000-4000-8000-000000000002",
+  "context": "bb69c820b3396b49e4e179e9429d88b72861fd3ebd3c739b745983289abb1d85",
+  "understanding": "Review feature/retry; the retry limit is unknown."
+}

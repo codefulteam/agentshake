@@ -1,0 +1,11 @@
+{
+  "action": "ask",
+  "request": "00000000-0000-4000-8000-000000000002",
+  "context": "f4d208d5da60881d7d3b3a1cdfbee62ec3813a63c4a831fdf638c452c4f52198",
+  "items": [
+    {
+      "topic": "Expected retry limit?",
+      "need": "Needed to scope the work: expected retry limit?"
+    }
+  ]
+}

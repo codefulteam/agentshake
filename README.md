@@ -21,12 +21,17 @@ confirm your understanding and current known limitations ─▶ accept that exac
   that both sides verify. Rollbacks, forks, forged or out-of-role events are rejected.
 - **Prompt-injection aware**: text from the other side is shown to the operator (escaped), never
   handed to the agent. The agent only reads a brief the local operator wrote.
-- **No server**: the mailbox is a private GitHub repository you already control. No daemon, no
-  hosted backend, no model API.
+- **No server, offline-capable**: the mailbox is a private GitHub repository you already control,
+  or a local file on one trusted machine with no network at all ([docs/local.md](docs/local.md)).
+  No daemon, no hosted backend, no model API.
+- **A written protocol**: humans and agents use the same nine operations. The draft
+  [specification](spec/README.md), JSON Schemas, examples, vectors and an offline conformance
+  runner ship in the package.
 - **Agent-neutral**: any agent that can run a shell command or speak MCP over stdio can use it.
 
-> Status: **v0.2.0 release candidate** (protocol 2, pre-accept context negotiation). The protocol,
-> CLI, MCP server and GitHub adapter are implemented. The GitHub adapter is tested against a GitHub
+> Status: **v0.3.0 candidate** (wire protocol 2, unchanged since 0.2.0; the package version is
+> independent of the protocol number). The protocol, its draft specification, CLI, MCP server and
+> GitHub adapter are implemented. The GitHub adapter is tested against a GitHub
 > CLI test double; live two-account GitHub use has **not** been verified yet. Agentshake provides
 > no sandbox itself; two agent isolation setups are verified by scripted tests (see
 > [What is verified](#what-is-verified)). Coming from 0.1? See [Upgrading from 0.1](#upgrading-from-01).
@@ -41,8 +46,7 @@ npm ci && npm run build
 node dist/cli.js demo
 ```
 
-or, once the v0.2.0 release is published, install its tarball and run `agentshake demo`
-(see [Install](#install)).
+or install a release tarball and run `agentshake demo` (see [Install](#install)).
 
 `agentshake demo` runs a complete two-person handshake offline: two profiles (Alice and Bob), a
 local file mailbox, a review offer containing a hostile "ignore previous instructions" line, a
@@ -114,8 +118,9 @@ not change scope; to change scope after acceptance, Alice cancels and sends a ne
 Agentshake is distributed as a release tarball first. npm publication may follow.
 
 ```sh
-# From a GitHub release (after v0.2.0 is published)
-npm install -g https://github.com/codefulteam/agentshake/releases/download/v0.2.0/agentshake-0.2.0.tgz
+# From a release tarball, online or fully offline (runtime dependencies are bundled in the tarball)
+npm install --offline --no-audit --no-fund --prefix ~/agentshake ./agentshake-0.3.0.tgz
+~/agentshake/node_modules/.bin/agentshake demo
 
 # From source
 git clone https://github.com/codefulteam/agentshake && cd agentshake
@@ -128,6 +133,12 @@ the CI workflow is configured for the latest of each). The package ships an `npm
 so installs use the exact dependency versions that were tested.
 Agentshake uses Node's built-in `node:sqlite`, `node:crypto` and test runner. The GitHub
 transport needs the [GitHub CLI](https://cli.github.com/) (`gh`).
+
+## Use without GitHub
+
+For personal use on one machine (you and your own agents, two local principals, no GitHub
+account), offline installation and the exact limits of the unauthenticated file mailbox, see
+[docs/local.md](docs/local.md).
 
 ## Use with GitHub
 
@@ -220,7 +231,11 @@ setups are verified by scripts in `test/isolation/` (a two-account Linux contain
 | `decline` / `cancel <request>` | Decline as recipient / cancel as requester |
 | `complete <request> --reply <id> --outcome completed\|failed` | Close with your published reply |
 | `pending` / `recover <operation>` | List and finish interrupted operations |
+| `draft new\|reply\|ask\|supply\|confirm` | Write a draft yourself, in the same format your agent writes; then `publish` it |
 | `demo` | Offline two-person demo |
+| `validate <file> [--as ledger\|draft\|brief\|capabilities]` | Check a document offline: schema, canonical bytes, signatures, roles, state, capacity (no profile) |
+| `capabilities` | Print supported protocol, profiles, operations, limits and schema IDs (no profile) |
+| `conformance [-- <validator> …]` | Run the shipped conformance cases against the built-in or another validator (no profile) |
 
 These operator actions ask for approval on the controlling terminal and show exactly what will
 be signed or released (destination, signer, request revision, text, and for briefs the agent
@@ -307,8 +322,13 @@ installed package tarball, plus scripted isolation checks:
   locking; negotiation briefs without remote text, removed when stale, replaced on accept; protocol
   1 profiles refused with byte-identical files.
 - CLI and MCP: the full two-profile handshake through the executable (file and stdin payloads,
-  stale `--approve` refused), and all three MCP tools, including question, answer and confirmation
+  stale `--approve` refused), and all four MCP tools, including question, answer and confirmation
   drafts, through the official MCP TypeScript client over stdio.
+- Specification: the JSON Schemas compile in Ajv strict mode and accept every shape the reference
+  accepts; every example has the expected verdict under the schema, the built-in validator and the
+  executable as an external validator; vectors are re-derived without the implementation; the
+  human-human, human-agent and agent-agent conversations run live through the CLI and MCP and match
+  the committed states; peer prose never reaches the agent side.
 - GitHub adapter: exact `gh api graphql` argv, static queries, `createCommitOnBranch` with
   `expectedHeadOid`, stale-head conflicts, denial, rate limits, oversized/truncated/mismatched
   responses — **against a `gh` test double**, not live GitHub.
@@ -318,7 +338,8 @@ installed package tarball, plus scripted isolation checks:
   exchange configuration; reconfiguration needs a new approval.
 - Isolation (`test/isolation/`): in a network-less Ubuntu 24.04 container, an agent running as a
   separate UID in the `--group` exchange reads briefs (also after atomic replacement), writes drafts
-  the operator publishes, uses all three MCP tools, and is denied the operator profile, key and
+  the operator publishes, uses the three original MCP tools (the isolation scripts predate
+  `get_capabilities`), and is denied the operator profile, key and
   inbox writes. On macOS, an agent under a `sandbox-exec` profile with the same UID gets the same
   results plus denied network and `gh`.
 
@@ -331,6 +352,8 @@ and any agent host other than the reference MCP client.
 - **v0.1** — GitHub private repository transport, offline file transport, CLI and stdio MCP.
 - **v0.2** — protocol 2: pre-accept context negotiation (ask, supply, confirm) and acceptance bound
   to a confirmed context.
+- **v0.3** — draft specification, JSON Schemas, conformance runner, `validate`/`capabilities`,
+  human drafts in the agent format, offline installation (wire protocol unchanged).
 - Next — live two-account GitHub verification, repository-scoped auth (for example a GitHub App),
   metadata-only notifications.
 - Later — more transports behind the same [transport contract](docs/transports.md) (for example
@@ -339,7 +362,7 @@ and any agent host other than the reference MCP client.
 
 ## Upgrading from 0.1
 
-Agentshake 0.2 speaks protocol 2 only, which needs a **fresh mailbox and a new profile**. Nothing
+Agentshake 0.2 and later speak protocol 2 only, which needs a **fresh mailbox and a new profile**. Nothing
 is migrated and nothing of yours is changed:
 
 - Commands on a 0.1 profile stop with exit code 2 before touching it, and tell you both options.
@@ -354,6 +377,8 @@ See [docs/protocol.md#versioning](docs/protocol.md#versioning) for the exact rul
 
 ## Documentation
 
+- [spec/](spec/README.md) — the draft protocol 2 specification, schemas, examples, vectors and conformance cases
+- [docs/local.md](docs/local.md) — offline installation and personal use without GitHub
 - [docs/protocol.md](docs/protocol.md) — ledger format, signatures, transitions, limits, vectors
 - [docs/architecture.md](docs/architecture.md) — layers, trust boundaries, recovery
 - [docs/transports.md](docs/transports.md) — GitHub, file and memory adapters; writing a new one
@@ -365,7 +390,8 @@ See [docs/protocol.md#versioning](docs/protocol.md#versioning) for the exact rul
 
 Agentshake builds on the [Model Context Protocol](https://modelcontextprotocol.io/) TypeScript SDK
 (Apache-2.0), [Commander.js](https://github.com/tj/commander.js) (MIT), [Zod](https://zod.dev/)
-(MIT) and the [GitHub CLI](https://cli.github.com/). The request lifecycle was informed by the
+(MIT) and the [GitHub CLI](https://cli.github.com/). The first three are bundled in the package
+tarball with their own license files; their copyrights belong to their authors. The request lifecycle was informed by the
 task states of the [A2A protocol](https://a2a-protocol.org/). Out-of-band fingerprint checks follow
 the same idea as verifying an SSH host key. No third-party source code is copied into this project.
 

@@ -58,6 +58,12 @@ answers (supplied, unavailable or withheld) and a confirmed understanding.
 
 ## What it does not protect
 
+- **Meaning of a valid ledger.** `agentshake validate` and `conformance` check that a history is
+  well formed, signed by the pinned keys and consistent with the rules. A valid ledger is not
+  permission to act, not evidence that its text is true, and not a statement that a request is still
+  live (expiry is evaluated against your own clock when you act).
+- **The file mailbox.** The `--file` profile authenticates nobody. Use it on one trusted machine
+  only ([docs/local.md](docs/local.md)).
 - **Host isolation.** Agentshake does not sandbox anything. An agent running unrestricted as your
   user can read your profile and private key, use your `gh` credentials, publish without asking and
   edit the Agentshake installation. You must isolate the agent (separate OS account with
@@ -83,6 +89,17 @@ answers (supplied, unavailable or withheld) and a confirmed understanding.
 - **Stale negotiation briefs between reads.** A negotiation brief is removed the next time the
   operator lists or shows requests, or records an event. Until then an agent can still read it,
   but any draft it writes against the old context is refused at `publish`.
+- **Accepted briefs after cancellation.** A brief records the operator's approval at the time it
+  was released. If the requester later cancels, an offline agent still sees the old brief, with
+  `authorizesWork: true`. It disappears only when the recipient's operator reads the mailbox
+  again (`agentshake inbox`, `outbox`, `show` or `drafts`). Those reads remove the briefs of
+  canceled, declined and expired requests. Any reply the agent drafts is refused at `publish`.
+  Refresh before you hand work to an agent, and treat a brief as "approved when issued", not
+  "still approved".
+- **Expiry needs no refresh.** A brief carries its request's expiry. From that instant
+  (`now >= expires`, by the local clock), the agent interface (shell and MCP) refuses to read it
+  and omits it from the list, even offline. The file stays in the inbox until an operator read
+  removes it.
 - **Clocks.** Expiry assumes reasonably synchronized clocks; a malicious peer can choose its own
   timestamps within the protocol rules.
 - **Stable credentials and visibility during a command.** The GitHub adapter reads the viewer and
@@ -93,7 +110,9 @@ answers (supplied, unavailable or withheld) and a confirmed understanding.
   runs. The adapter does not enforce privacy atomically.
 - **Broad GitHub tokens.** `gh auth login` usually yields a token with access to every repository
   of the account. Agentshake only issues fixed queries, but the token is broader than the mailbox.
-- **The file transport** authenticates nobody and is for demos and tests only.
+- **The file transport** authenticates nobody. It is for one trusted machine: personal use (two
+  local principals, you and your agents), the demo and tests ([docs/local.md](docs/local.md)).
+  It is not a transport between users who do not trust each other, or between machines.
 
 ## Operator checklist
 

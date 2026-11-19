@@ -1,0 +1,7 @@
+{
+  "action": "new",
+  "category": "question",
+  "title": "Is the cache safe to share?",
+  "body": "Can two workers share one cache directory?",
+  "ttlHours": 168
+}

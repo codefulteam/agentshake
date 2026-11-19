@@ -1,0 +1,7 @@
+{
+  "action": "new",
+  "category": "review",
+  "title": "Review the retry change",
+  "body": "Please review feature/retry.",
+  "ttlHours": 168
+}

@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uuid:3dfc5ad8-12f0-4c17-b018-40b9cfc69807",
+  "title": "Agentshake validation result 1",
+  "description": "Output of `agentshake validate --json`. A valid ledger is a verified history: not permission to act, not evidence that its text is true, and not checked against a clock. New fields may be added.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": [
+        "format",
+        "as",
+        "valid"
+      ],
+      "properties": {
+        "format": {
+          "const": "agentshake-validation/1"
+        },
+        "as": {
+          "enum": [
+            "ledger",
+            "draft",
+            "brief",
+            "capabilities"
+          ]
+        },
+        "valid": {
+          "const": true
+        },
+        "summary": {
+          "type": "object",
+          "required": [
+            "protocol",
+            "principals",
+            "events",
+            "liveness",
+            "requests"
+          ],
+          "properties": {
+            "protocol": {
+              "const": 2
+            },
+            "principals": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "events": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "liveness": {
+              "const": "not-evaluated"
+            },
+            "requests": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "object",
+      "required": [
+        "format",
+        "as",
+        "valid",
+        "stage",
+        "code",
+        "reason",
+        "message"
+      ],
+      "properties": {
+        "format": {
+          "const": "agentshake-validation/1"
+        },
+        "as": {
+          "enum": [
+            "ledger",
+            "draft",
+            "brief",
+            "capabilities"
+          ]
+        },
+        "valid": {
+          "const": false
+        },
+        "stage": {
+          "enum": [
+            "input",
+            "version",
+            "schema",
+            "canonical",
+            "genesis",
+            "chain",
+            "signature",
+            "transition",
+            "capacity"
+          ]
+        },
+        "code": {
+          "enum": [
+            "input.size",
+            "input.encoding",
+            "input.json",
+            "version.retired",
+            "version.unsupported",
+            "schema.invalid",
+            "canonical.mismatch",
+            "genesis.roster",
+            "genesis.signature",
+            "chain.previous",
+            "chain.epoch",
+            "chain.duplicate-event",
+            "signature.actor",
+            "signature.invalid",
+            "transition.role",
+            "transition.state",
+            "capacity.request",
+            "capacity.mailbox"
+          ]
+        },
+        "reason": {
+          "enum": [
+            "usage",
+            "access",
+            "conflict",
+            "temporary",
+            "integrity"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "next": {
+          "type": "string"
+        },
+        "event": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "path": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

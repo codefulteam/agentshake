@@ -42,4 +42,4 @@ jobs:
           bash test/isolation/build-image.sh
           NODE_LINUX=$(dirname "$(dirname "$(command -v node)")") PKG_PREFIX="$WORK/prefix" bash test/isolation/run-container.sh
       - name: Inspect package contents
-        run: npm pack --dry-run --json | node -e "const [p]=JSON.parse(require('fs').readFileSync(0));const bad=p.files.map(f=>f.path).filter(f=>!/^(dist\/|docs\/|scripts\/demo\.sh$|README\.md$|LICENSE$|NOTICE$|SECURITY\.md$|CHANGELOG\.md$|CONTRIBUTING\.md$|CODE_OF_CONDUCT\.md$|npm-shrinkwrap\.json$|package\.json$)/.test(f));if(bad.length){console.error('unexpected files',bad);process.exit(1)}console.log(p.files.length,'files ok')"
+        run: npm pack --dry-run --json | node -e "const [p]=JSON.parse(require('fs').readFileSync(0));const bad=p.files.map(f=>f.path).filter(f=>!/^(dist\/|docs\/|spec\/|node_modules\/(@modelcontextprotocol\/(server|core)|commander|zod)\/|scripts\/demo\.sh$|README\.md$|LICENSE$|NOTICE$|SECURITY\.md$|CHANGELOG\.md$|CONTRIBUTING\.md$|CODE_OF_CONDUCT\.md$|npm-shrinkwrap\.json$|package\.json$)/.test(f));if(bad.length){console.error('unexpected files',bad);process.exit(1)}console.log(p.files.length,'files ok')"

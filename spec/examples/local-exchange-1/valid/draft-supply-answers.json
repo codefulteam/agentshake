@@ -1,0 +1,17 @@
+{
+  "action": "supply",
+  "request": "00000000-0000-4000-8000-000000000002",
+  "ask": "00000000-0000-4000-8000-000000000003",
+  "answers": [
+    {
+      "item": 1,
+      "status": "supplied",
+      "body": "feature/retry"
+    },
+    {
+      "item": 2,
+      "status": "withheld",
+      "body": "Not shareable."
+    }
+  ]
+}

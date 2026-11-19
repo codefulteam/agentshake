@@ -7,6 +7,7 @@ import * as z from 'zod';
 import { AgentshakeError, idSchema } from './domain.js';
 import { createDraft, draftSchema, listBriefs, readBrief, type Paths } from './local.js';
 import { VERSION } from './version.js';
+import { capabilities } from './capabilities.js';
 
 function response(value: unknown, isError = false) {
   return { content: [{ type: 'text' as const, text: JSON.stringify(value) }], isError };
@@ -24,7 +25,8 @@ const SCHEMA_NOTE = 'Arguments that do not match the input schema are rejected b
 const TOOL_NEXT = {
   list_briefs: 'Ask your operator to check the agent exchange setup (`agentshake doctor`).',
   read_brief: 'Call list_briefs for the available request IDs, or ask your operator to release a brief.',
-  create_draft: 'Fix the draft fields as described by the create_draft tool, or ask your operator for a current brief.'
+  create_draft: 'Fix the draft fields as described by the create_draft tool, or ask your operator for a current brief.',
+  get_capabilities: 'Ask your operator to check the Agentshake installation (`agentshake capabilities`).'
 } as const;
 
 function localAction(tool: keyof typeof TOOL_NEXT, action: () => unknown) {
@@ -64,5 +66,10 @@ export async function serve(paths: Paths) {
       'Returns a draft ID for the operator to review and publish. ' + SCHEMA_NOTE,
     inputSchema: z.strictObject({ draft: draftSchema.describe('One draft object; its "action" field selects the fields listed above. No other fields are accepted.') })
   }, ({ draft }) => localAction('create_draft', () => createDraft(paths.outbox, draft)));
+  server.registerTool('get_capabilities', {
+    description: 'Describe what this Agentshake installation supports: protocol version, operations, the draft actions you can ' +
+      'propose, limits and schema IDs. It is static local information: it grants no permission and contacts no server.',
+    inputSchema: z.strictObject({})
+  }, () => localAction('get_capabilities', () => capabilities()));
   await server.connect(new StdioServerTransport());
 }

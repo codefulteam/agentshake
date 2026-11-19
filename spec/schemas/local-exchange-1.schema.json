@@ -1,0 +1,350 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uuid:c06bbf19-d787-46f1-ba62-084ff35cd874",
+  "title": "Agentshake local exchange 1: drafts and briefs",
+  "description": "Local documents between an operator and an agent. Drafts are proposals; nothing in them grants authority. Briefs are written by the operator's tool only.",
+  "$defs": {
+    "draftNew": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "new"
+        },
+        "category": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/category"
+        },
+        "title": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/title"
+        },
+        "body": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/body"
+        },
+        "ttlHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 336
+        }
+      },
+      "required": [
+        "action",
+        "category",
+        "title",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "draftReply": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "reply"
+        },
+        "request": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "body": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/body"
+        }
+      },
+      "required": [
+        "action",
+        "request",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "draftAsk": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "ask"
+        },
+        "request": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "context": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/digest"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/item"
+          },
+          "minItems": 1,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "action",
+        "request",
+        "context",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "draftSupply": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "supply"
+        },
+        "request": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "ask": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "context": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/digest"
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/answer"
+          },
+          "maxItems": 5
+        },
+        "note": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/body"
+        },
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/resolution"
+          },
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "action",
+        "request"
+      ],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "ask": true,
+            "answers": {
+              "type": "array",
+              "minItems": 1
+            },
+            "context": true
+          },
+          "required": [
+            "ask",
+            "answers"
+          ],
+          "not": {
+            "properties": {
+              "context": true
+            },
+            "required": [
+              "context"
+            ]
+          }
+        },
+        {
+          "properties": {
+            "context": true,
+            "ask": true,
+            "answers": {
+              "type": "array",
+              "maxItems": 0
+            }
+          },
+          "required": [
+            "context"
+          ],
+          "not": {
+            "properties": {
+              "ask": true
+            },
+            "required": [
+              "ask"
+            ]
+          },
+          "anyOf": [
+            {
+              "properties": {
+                "note": true
+              },
+              "required": [
+                "note"
+              ]
+            },
+            {
+              "properties": {
+                "resolutions": {
+                  "type": "array",
+                  "minItems": 1
+                }
+              },
+              "required": [
+                "resolutions"
+              ]
+            }
+          ]
+        }
+      ],
+      "$comment": "Answer, resolution and note bytes together at most 4096 (S3)."
+    },
+    "draftConfirm": {
+      "type": "object",
+      "properties": {
+        "action": {
+          "const": "confirm"
+        },
+        "request": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "context": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/digest"
+        },
+        "understanding": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/understanding"
+        }
+      },
+      "required": [
+        "action",
+        "request",
+        "context",
+        "understanding"
+      ],
+      "additionalProperties": false
+    },
+    "draft": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/draftNew"
+        },
+        {
+          "$ref": "#/$defs/draftReply"
+        },
+        {
+          "$ref": "#/$defs/draftAsk"
+        },
+        {
+          "$ref": "#/$defs/draftSupply"
+        },
+        {
+          "$ref": "#/$defs/draftConfirm"
+        }
+      ],
+      "$comment": "Only these five actions exist. Accept, decline, cancel and complete are operator decisions and have no draft form."
+    },
+    "brief": {
+      "type": "object",
+      "properties": {
+        "request": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+        },
+        "role": {
+          "enum": [
+            "recipient",
+            "sender"
+          ]
+        },
+        "category": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/category"
+        },
+        "stage": {
+          "enum": [
+            "negotiating",
+            "accepted",
+            "finished"
+          ]
+        },
+        "authorizesWork": {
+          "type": "boolean"
+        },
+        "body": {
+          "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/body"
+        },
+        "expires": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "version": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "context": {
+          "type": "object",
+          "properties": {
+            "revision": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "digest": {
+              "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/digest"
+            }
+          },
+          "required": [
+            "revision",
+            "digest"
+          ],
+          "additionalProperties": false
+        },
+        "open": {
+          "type": "object",
+          "properties": {
+            "ask": {
+              "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/id"
+            },
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
+            }
+          },
+          "required": [
+            "ask",
+            "items"
+          ],
+          "additionalProperties": false
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130#/$defs/gap"
+          },
+          "maxItems": 64
+        }
+      },
+      "required": [
+        "request",
+        "role",
+        "category",
+        "stage",
+        "authorizesWork",
+        "body",
+        "expires",
+        "version",
+        "context",
+        "gaps"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "negotiating"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "authorizesWork": {
+            "const": false
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "authorizesWork": {
+            "const": true
+          }
+        }
+      }
+    }
+  }
+}

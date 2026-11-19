@@ -2,9 +2,79 @@
 
 All notable changes are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
-## Unreleased (local candidate, not released)
+## [0.3.0] — local candidate, not released
 
-Fixes from the 0.2.0 scenario evaluation. Protocol, ledger format and version are unchanged.
+Wire protocol 2 is unchanged: the same ledger bytes, signatures, mailboxes, GitHub path, limits
+and golden vectors as 0.2.0. The package version is independent of the protocol number.
+
+### Added
+
+- `spec/`: a draft, experimental specification of protocol 2 (`protocol-2.md`), the GitHub and file
+  profiles, the local exchange format with the reference security policy, adopter guidance, and a
+  non-normative protocol 3 proposal. JSON Schemas (2020-12, syntax only, `urn:uuid` IDs, local
+  references), signed valid and invalid examples, three full conversations (human-human,
+  human-agent, agent-agent), vectors and a conformance manifest, all shipped in the package and
+  generated deterministically by `scripts/spec-fixtures.mjs`.
+- `agentshake validate <file> [--as ledger|draft|brief|capabilities]`: offline, staged validation
+  (input, version, schema, canonical, genesis, chain, signature, transition, capacity) with stable
+  codes. Exit 0 valid, 6 invalid, 2 usage. It opens no profile.
+- `agentshake capabilities`, `agentshake agent capabilities` and the MCP tool `get_capabilities`:
+  static description of the protocol, profiles, operations, draft actions, limits and schema IDs.
+- `agentshake conformance [-- <validator> …]`: runs the shipped cases against the built-in
+  validator or any command that prints validation JSON.
+- `agentshake draft new|reply|ask|supply|confirm`: the operator writes the same draft document an
+  agent writes, then publishes it as usual.
+- Library exports: `inspect`, `decideIntent`, `applyChecked`, `validate`, `summarize`,
+  `capabilities`, `runConformance`, `normalizeSummary`, and schema IDs.
+- `docs/local.md`: offline installation and a personal workflow on one machine without GitHub,
+  with the exact limits of the unauthenticated file profile.
+
+### Review fixes (before release)
+
+- Conformance compares normalized ledger states independently of member order: objects are
+  traversed in member-name order before labels are assigned. A validator that prints sorted or
+  reordered JSON now passes.
+- `validate` reports every content defect as a validation result: oversized input
+  (`input.size`, read stops after the limit), bytes that are not UTF-8 (`input.encoding`, a new
+  code), and non-JSON (`input.json`). A deeply nested non-numeric version is reported as
+  `version.unsupported` without serializing it; on Node 24 it previously crashed with a stack
+  overflow. Filesystem problems stay errors (exit 2 or 3).
+- Spec:
+  - `channel` and `branch` lengths are code points (1–200, 1–250), as wire 2 has always
+    validated them; an unpaired surrogate counts as one;
+  - rule S2 (well-formed Unicode) is scoped to the text fields wire 2 has always checked;
+    `channel` and `branch` keep their legacy acceptance;
+  - the order of global and per-event validation stages is stated;
+  - a missing version is a schema failure;
+  - the normalization traversal order is defined.
+- Docs:
+  - brief freshness after cancellation (visible until the recipient's operator refreshes) versus
+    expiry (refused and omitted locally from `expires`, even offline);
+  - the file profile's personal single-machine scope in SECURITY;
+  - the installed binary path, a sample task file, where the draft ID appears, and the optional
+    `sqlite3` shell in the personal walkthrough;
+  - the trusted `seal` hook and the exact mutation-free scope of `decideIntent` and
+    `applyChecked`.
+
+### Changed
+
+- Runtime dependencies are bundled in the package tarball (`bundleDependencies`), so it installs
+  with `npm install --offline` and needs no registry. Node.js remains a prerequisite.
+- Ledger verification, intent checks and transitions return results internally
+  (`inspect`, `decideIntent`, `applyChecked`). `decode`, `preflight`, `append` and `apply` keep
+  their throwing behavior, messages and exit codes. An unexpected non-protocol error inside a
+  transition is no longer reported as a ledger integrity failure; it propagates as an internal
+  error.
+- The CLI's output envelope and draft commands moved into `src/commands/`, shared by the agent and
+  operator command trees.
+- An agent draft that falls back to its brief binding now treats only Agentshake errors (missing,
+  expired or invalid brief) as "no binding"; other failures, such as permission errors, are reported
+  instead of being hidden.
+- Protocol 1 refusal messages say "This release speaks protocol 2 only" instead of naming 0.2.
+
+### Fixed
+
+Fixes from the 0.2.0 scenario evaluation:
 
 ### Fixed
 

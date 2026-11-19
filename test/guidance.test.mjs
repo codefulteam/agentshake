@@ -92,7 +92,7 @@ test('F3: command-line parser errors under --json use the JSON error envelope wi
   // Without --json the parser text is unchanged; help and version still succeed with --json.
   assert.match(h.run(['ask'], { json: false, expected: 2 }).stderr, /missing required argument 'request'[\s\S]*run with --help/);
   for (const [args, pattern] of [[['--help'], /Usage: agentshake/], [['ask', '--help'], /Usage: agentshake ask/],
-    [['--version'], /^0\.2\.0/], [['help', 'ask'], /Usage: agentshake ask/]]) {
+    [['--version'], /^0\.3\.0/], [['help', 'ask'], /Usage: agentshake ask/]]) {
     const ok = h.run(['--json', ...args], { json: false });
     assert.match(ok.stdout, pattern, args.join(' '));
     assert.equal(ok.stderr, '');

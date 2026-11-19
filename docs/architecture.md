@@ -6,15 +6,21 @@ about GitHub; only the CLI knows about terminals.
 ```
  src/cli.ts        operator CLI + agent CLI (Commander), approvals, human/JSON output
  src/view.ts       request phase, whose move it is, next steps, escaped negotiation history
- src/mcp.ts        stdio MCP server for agents (list_briefs, read_brief, create_draft)
+ src/mcp.ts        stdio MCP server for agents (list_briefs, read_brief, create_draft, get_capabilities)
  src/demo.ts       offline two-profile handshake demo
+ src/commands/     command modules: output envelope (common), draft commands shared by the agent
+                   and the operator alias (drafts), offline validate/capabilities/conformance (spec)
+ src/validate.ts   offline document validation over the single ledger verifier; ledger summary
+ src/capabilities.ts  static capabilities document built from the protocol constants
+ src/conformance.ts   conformance manifest runner (built-in or external validator), state normalization
       │
  src/mailbox.ts    application: pairing, protocol check, staged operations, conditional append,
       │            retries, receipt verification, recovery, brief release and pruning
  src/negotiate.ts  builds ask/supply/confirm/accept payloads and checks draft bindings
-      ├── src/domain.ts       protocol: signing, genesis, replay, capacity, append, v1 detection
+      ├── src/domain.ts       protocol: signing, genesis, the single ledger verifier (inspect), intent
+      │                        decisions (decideIntent), capacity; throwing adapters decode/preflight/append
       │     ├── src/schema.ts       wire schemas and limits
-      │     ├── src/transitions.ts  request state machine and context digest
+      │     ├── src/transitions.ts  request state machine (applyChecked returns refusals) and context digest
       │     └── src/errors.ts       error reasons and exit codes
       ├── src/local.ts      local state: profile DB, lock, exchange dirs, drafts, briefs, safe file IO
       └── src/transport/    adapters: types.ts (contract), github.ts, file.ts, memory.ts, index.ts
@@ -23,7 +29,19 @@ about GitHub; only the CLI knows about terminals.
 Every operator command except `key`, `exchange show` and `pending` first checks that the profile
 is a protocol 2 profile, before any login lookup, journal, exchange or outbox read and any write.
 
-`src/domain.ts`, `src/schema.ts`, `src/transitions.ts`, `src/negotiate.ts` and `src/view.ts` perform no I/O. `src/transport/*` never interprets the ledger. Adding a transport
+`src/domain.ts`, `src/schema.ts`, `src/transitions.ts`, `src/negotiate.ts`, `src/view.ts`, `src/validate.ts`
+and `src/capabilities.ts` perform no I/O.
+
+Contracts: `applyChecked` is the only transition authority. It returns `{ ok }` or a refusal
+(`access` for a role, `conflict` for state) and never mutates on refusal. `inspect` is the only
+ledger verifier and returns the first failing stage and code. `decode`, `preflight` and `append`
+are throwing adapters over `inspect` and `decideIntent`, with unchanged messages and exit codes.
+`decideIntent` calls the caller's `seal` hook before the transition check, so that capacity is
+measured on the real encoding. The hook is trusted, and its exceptions propagate. `decideIntent`
+never mutates the given replay. `applyChecked` mutates its `requests` argument only on success.
+
+The journal's discard decision in `mailbox.ts` (`settle`) still keys on the thrown `conflict` or
+`access` reason and is unchanged in 0.3. This is a known legacy boundary. `src/transport/*` never interprets the ledger. Adding a transport
 touches only `src/transport/` (see [transports.md](transports.md)).
 
 ## Trust boundaries

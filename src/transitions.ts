@@ -2,7 +2,7 @@
 // confirm), accept bound to a confirmed context, then replies and completion.
 // Pure functions over replayed state; no I/O.
 import { createHash } from 'node:crypto';
-import { access, conflict } from './errors.js';
+import { AgentshakeError } from './errors.js';
 import { HOUR, MAX_REQUESTS, MAX_SUPPLIES, type Answer, type Gap, type Genesis, type Intent, type Payload,
   type RequestKind, type Resolution } from './schema.js';
 
@@ -104,85 +104,94 @@ export const ownReplyNext = (request: string) =>
   `then cite its ID from \`agentshake show ${request}\`.`;
 const CLOSED_NEXT = 'Use replies for result discussion. To change scope, the requester cancels and sends a new offer.';
 
-export function apply(requests: Requests, event: Intent, roster: Genesis['roster']) {
+/** An ordinary refusal of a transition: `access` for a wrong participant or role, `conflict` for state. */
+export type Refusal = { reason: 'access' | 'conflict'; message: string; next?: string };
+export type Transition = { ok: true } | { ok: false; refusal: Refusal };
+const OK: Transition = { ok: true };
+const role = (message: string, next?: string): Transition =>
+  ({ ok: false, refusal: { reason: 'access', message, ...(next === undefined ? {} : { next }) } });
+const state = (message: string, next?: string): Transition =>
+  ({ ok: false, refusal: { reason: 'conflict', message, ...(next === undefined ? {} : { next }) } });
+
+/**
+ * The single authority for request transitions. Every check runs before any mutation, so a refusal
+ * leaves `requests` unchanged. On success the given `requests` map is updated in place; callers that
+ * must not change their state pass a clone (as `decideIntent` does).
+ */
+export function applyChecked(requests: Requests, event: Intent, roster: Genesis['roster']): Transition {
   const request = requests.get(event.request);
   const payload = event.payload;
   if (payload.kind === 'offer') {
-    if (request || event.revision !== 0) conflict('Request already exists.');
+    if (request || event.revision !== 0) return state('Request already exists.');
     if (event.actor === payload.to || !roster.some(actor => actor.account === payload.to)) {
-      access('The request must target the paired account.');
+      return role('The request must target the paired account.');
     }
-    if (requests.size >= MAX_REQUESTS) conflict('Mailbox request cap reached.');
+    if (requests.size >= MAX_REQUESTS) return state('Mailbox request cap reached.');
     requests.set(event.request, {
       id: event.request, sender: event.actor, recipient: payload.to, category: payload.category,
       title: payload.title, body: payload.body, ttlHours: payload.ttlHours, created: event.timestamp,
       expires: event.timestamp + payload.ttlHours * HOUR, updated: event.timestamp,
       revision: 1, state: 'pending', context: offerContext(event.request, payload), negotiation: [], supplies: 0, replies: []
     });
-    return;
+    return OK;
   }
-  if (!request) return conflict('Unknown request.', 'Run `agentshake inbox` or `agentshake outbox`.');
-  if (event.actor !== request.sender && event.actor !== request.recipient) access('Wrong request participant.');
+  if (!request) return state('Unknown request.', 'Run `agentshake inbox` or `agentshake outbox`.');
+  if (event.actor !== request.sender && event.actor !== request.recipient) return role('Wrong request participant.');
   if (request.revision !== event.revision) {
-    conflict('The request changed since this action was prepared.', `Run \`agentshake show ${request.id}\` and decide again.`);
+    return state('The request changed since this action was prepared.', `Run \`agentshake show ${request.id}\` and decide again.`);
   }
-  if (!live(request)) conflict(`The request is already ${request.state}.`, `Run \`agentshake show ${request.id}\`.`);
-  if (event.timestamp >= request.expires) conflict('The request has expired.', expiredNext(event.actor === request.sender));
-  if (event.timestamp < request.updated) conflict('The sender clock is behind the request history.');
+  if (!live(request)) return state(`The request is already ${request.state}.`, `Run \`agentshake show ${request.id}\`.`);
+  if (event.timestamp >= request.expires) return state('The request has expired.', expiredNext(event.actor === request.sender));
+  if (event.timestamp < request.updated) return state('The sender clock is behind the request history.');
   const recipient = event.actor === request.recipient;
   const at = event.timestamp;
-  const needsPending = (what: string) => {
-    if (request.state === 'accepted') conflict(CLOSED, CLOSED_NEXT);
-    if (request.state !== 'pending') conflict(`${what} needs a pending request.`);
-  };
-  const currentContext = (digest: string) => {
-    if (digest !== request.context.digest) {
-      conflict('The context changed since this action was prepared.', `Run \`agentshake show ${request.id}\` and review the new context.`);
-    }
-  };
+  const notPending = (what: string) => request.state === 'accepted' ? state(CLOSED, CLOSED_NEXT)
+    : request.state !== 'pending' ? state(`${what} needs a pending request.`) : undefined;
+  const staleContext = (digest: string) => digest === request.context.digest ? undefined
+    : state('The context changed since this action was prepared.', `Run \`agentshake show ${request.id}\` and review the new context.`);
   switch (payload.kind) {
-    case 'ask':
-      if (!recipient) access('Only the recipient can ask for missing context.');
-      needsPending('Asking');
-      currentContext(payload.context);
-      if (request.open) conflict('A question round is already open.', 'Wait for the requester to answer it.');
+    case 'ask': {
+      if (!recipient) return role('Only the recipient can ask for missing context.');
+      const refused = notPending('Asking') ?? staleContext(payload.context);
+      if (refused) return refused;
+      if (request.open) return state('A question round is already open.', 'Wait for the requester to answer it.');
       if (request.supplies >= MAX_SUPPLIES) {
-        conflict('The clarification budget for this request is used up.', 'Confirm your understanding of the current context, or decline.');
+        return state('The clarification budget for this request is used up.', 'Confirm your understanding of the current context, or decline.');
       }
       request.negotiation.push({ kind: 'ask', id: event.event, actor: event.actor, at, context: request.context.revision,
         items: payload.items });
       request.open = event.event;
       request.confirmation = undefined;
       break;
+    }
     case 'supply': {
-      if (recipient) access('Only the requester can supply context.');
-      needsPending('Supplying context');
-      currentContext(payload.context);
-      if (request.supplies >= MAX_SUPPLIES) conflict('The clarification budget for this request is used up.');
+      if (recipient) return role('Only the requester can supply context.');
+      const refused = notPending('Supplying context') ?? staleContext(payload.context);
+      if (refused) return refused;
+      if (request.supplies >= MAX_SUPPLIES) return state('The clarification budget for this request is used up.');
       const resolutions = payload.resolutions ?? [];
       if (payload.ask === undefined) {
-        if (request.open) conflict('Answer the open questions first.', `Run \`agentshake show ${request.id}\`.`);
+        if (request.open) return state('Answer the open questions first.', `Run \`agentshake show ${request.id}\`.`);
         if (payload.answers.length || (payload.note === undefined && !resolutions.length)) {
-          conflict('A supply without a question round carries a note or resolutions only.');
+          return state('A supply without a question round carries a note or resolutions only.');
         }
       } else {
         const ask = openAsk(request);
         if (!ask || ask.id !== payload.ask) {
-          conflict('The supply does not answer the open question round of this request.', `Run \`agentshake show ${request.id}\`.`);
+          return state('The supply does not answer the open question round of this request.', `Run \`agentshake show ${request.id}\`.`);
         }
-        if (payload.answers.length !== ask!.items.length || payload.answers.some((answer, index) => answer.item !== index + 1)) {
-          conflict('Answer every open question exactly once, in order.');
+        if (payload.answers.length !== ask.items.length || payload.answers.some((answer, index) => answer.item !== index + 1)) {
+          return state('Answer every open question exactly once, in order.');
         }
       }
-      // Resolutions must name distinct, still unresolved negative answers of this request.
       const open = gapsOf(request);
       const seen = new Set<string>();
       for (const resolution of resolutions) {
         const ref = `${resolution.ask}:${resolution.item}`;
-        if (seen.has(ref)) conflict('Each unavailable or withheld item can be resolved once per supply.');
+        if (seen.has(ref)) return state('Each unavailable or withheld item can be resolved once per supply.');
         seen.add(ref);
         if (!open.some(gap => gap.ask === resolution.ask && gap.item === resolution.item)) {
-          conflict('A resolution must name an unresolved unavailable or withheld item of this request.', `Run \`agentshake show ${request.id}\`.`);
+          return state('A resolution must name an unresolved unavailable or withheld item of this request.', `Run \`agentshake show ${request.id}\`.`);
         }
       }
       if (payload.ask !== undefined) {
@@ -197,58 +206,67 @@ export function apply(requests: Requests, event: Intent, roster: Genesis['roster
       request.confirmation = undefined;
       break;
     }
-    case 'confirm':
-      if (!recipient) access('Only the recipient can confirm its own understanding.');
-      needsPending('Confirming');
-      currentContext(payload.context);
-      if (request.open) conflict('A question round is still open.', 'Wait for the answers, then confirm.');
+    case 'confirm': {
+      if (!recipient) return role('Only the recipient can confirm its own understanding.');
+      const refused = notPending('Confirming') ?? staleContext(payload.context);
+      if (refused) return refused;
+      if (request.open) return state('A question round is still open.', 'Wait for the answers, then confirm.');
       if (request.negotiation.some(entry => entry.kind === 'confirm' && entry.context === request.context.revision)) {
-        conflict('This context revision is already confirmed.', `Accept or decline: agentshake show ${request.id}`);
+        return state('This context revision is already confirmed.', `Accept or decline: agentshake show ${request.id}`);
       }
       if (!sameGaps(payload.gaps, gapsOf(request))) {
-        conflict('The confirmation must list exactly the unavailable and withheld items as known limitations.');
+        return state('The confirmation must list exactly the unavailable and withheld items as known limitations.');
       }
       request.negotiation.push({ kind: 'confirm', id: event.event, actor: event.actor, at, context: request.context.revision,
         understanding: payload.understanding, gaps: payload.gaps });
       request.confirmation = event.event;
       break;
+    }
     case 'accept': {
-      if (!recipient) access('Only the recipient can accept or decline.');
-      if (request.state !== 'pending') conflict('The request is no longer pending.');
-      currentContext(payload.context);
+      if (!recipient) return role('Only the recipient can accept or decline.');
+      if (request.state !== 'pending') return state('The request is no longer pending.');
+      const refused = staleContext(payload.context);
+      if (refused) return refused;
       const confirmation = currentConfirmation(request);
       if (!confirmation) {
-        conflict('Accept needs a confirmation of the current context.', `Run \`agentshake confirm ${request.id} --understanding-file <file>\`.`);
+        return state('Accept needs a confirmation of the current context.', `Run \`agentshake confirm ${request.id} --understanding-file <file>\`.`);
       }
-      if (confirmation!.id !== payload.confirmation) conflict('Accept must cite the current confirmation.');
+      if (confirmation.id !== payload.confirmation) return state('Accept must cite the current confirmation.');
       request.state = 'accepted';
       request.accepted = { confirmation: payload.confirmation, context: payload.context };
       break;
     }
     case 'decline':
-      if (!recipient) access('Only the recipient can accept or decline.');
-      if (request.state !== 'pending') conflict('The request is no longer pending.');
+      if (!recipient) return role('Only the recipient can accept or decline.');
+      if (request.state !== 'pending') return state('The request is no longer pending.');
       request.state = 'declined';
       break;
     case 'reply':
       if (request.state !== 'accepted') {
-        conflict('Replies need an accepted request.', 'Before acceptance, use ask, supply and confirm.');
+        return state('Replies need an accepted request.', 'Before acceptance, use ask, supply and confirm.');
       }
       request.replies.push({ id: event.event, actor: event.actor, body: payload.body, at });
       break;
     case 'complete':
-      if (!recipient) access('Only the recipient can complete.');
+      if (!recipient) return role('Only the recipient can complete.');
       if (request.state !== 'accepted' ||
           !request.replies.some(reply => reply.id === payload.reply && reply.actor === event.actor)) {
-        conflict('Complete must cite your own reply already published on this accepted request.', ownReplyNext(request.id));
+        return state('Complete must cite your own reply already published on this accepted request.', ownReplyNext(request.id));
       }
       request.state = payload.outcome;
       request.result = payload.reply;
       break;
     case 'cancel':
-      if (recipient) access('Only the requester can cancel.');
+      if (recipient) return role('Only the requester can cancel.');
       request.state = 'canceled';
   }
   request.updated = event.timestamp;
   request.revision++;
+  return OK;
+}
+
+/** Throwing adapter over `applyChecked`, kept for existing callers and the public export. */
+export function apply(requests: Requests, event: Intent, roster: Genesis['roster']) {
+  const result = applyChecked(requests, event, roster);
+  if (!result.ok) throw new AgentshakeError(result.refusal.reason, result.refusal.message, result.refusal.next);
 }

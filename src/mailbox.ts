@@ -60,7 +60,7 @@ function assertPairing(pairing: Pairing, key: string, snapshot: Snapshot, state:
 export function assertProfileProtocol(profile: Profile) {
   const value = profile.get('pairing');
   if (value !== undefined && (value === null || typeof value !== 'object' || (value as { protocol?: unknown }).protocol !== PROTOCOL)) {
-    invalid('This profile is paired on an Agentshake protocol 1 mailbox (v0.1). Agentshake 0.2 speaks protocol 2 only.', V1_PROFILE_NEXT);
+    invalid('This profile is paired on an Agentshake protocol 1 mailbox (v0.1). This release speaks protocol 2 only.', V1_PROFILE_NEXT);
   }
 }
 

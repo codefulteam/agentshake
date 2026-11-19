@@ -1,0 +1,131 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uuid:59168adc-f4af-4e5d-a97a-f29e8f8e6d1b",
+  "title": "Agentshake conformance manifest 1",
+  "description": "Cases for `agentshake conformance`. Inputs are paths relative to the spec directory. stage and code are compared; rule and jsonSchema are informative.",
+  "type": "object",
+  "required": [
+    "format",
+    "protocol",
+    "cases"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "format": {
+      "const": "agentshake-conformance/1"
+    },
+    "protocol": {
+      "const": 2
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 500,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "input",
+          "as",
+          "description",
+          "expect"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9.-]{1,40}$"
+          },
+          "input": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "not": {
+              "pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"
+            }
+          },
+          "as": {
+            "enum": [
+              "ledger",
+              "draft",
+              "brief",
+              "capabilities"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 300
+          },
+          "expect": {
+            "type": "object",
+            "required": [
+              "valid"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "valid": {
+                "type": "boolean"
+              },
+              "stage": {
+                "enum": [
+                  "input",
+                  "version",
+                  "schema",
+                  "canonical",
+                  "genesis",
+                  "chain",
+                  "signature",
+                  "transition",
+                  "capacity"
+                ]
+              },
+              "code": {
+                "enum": [
+                  "input.size",
+                  "input.encoding",
+                  "input.json",
+                  "version.retired",
+                  "version.unsupported",
+                  "schema.invalid",
+                  "canonical.mismatch",
+                  "genesis.roster",
+                  "genesis.signature",
+                  "chain.previous",
+                  "chain.epoch",
+                  "chain.duplicate-event",
+                  "signature.actor",
+                  "signature.invalid",
+                  "transition.role",
+                  "transition.state",
+                  "capacity.request",
+                  "capacity.mailbox"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "not": {
+                  "pattern": "(^/|(^|/)\\.\\.(/|$)|\\\\)"
+                }
+              },
+              "jsonSchema": {
+                "enum": [
+                  "pass",
+                  "fail"
+                ]
+              },
+              "rule": {
+                "type": "string",
+                "pattern": "^S[0-9]{1,2}$"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

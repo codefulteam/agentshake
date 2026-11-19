@@ -6,10 +6,10 @@ import { createInterface } from 'node:readline/promises';
 import { join, resolve } from 'node:path';
 import { ReadStream, WriteStream } from 'node:tty';
 import { Command, CommanderError, Option } from 'commander';
-import { access, AgentshakeError, bodySchema, conflict, temporary, DEFAULT_TTL_HOURS, digestSchema, fingerprint, idSchema,
-  invalid, MAX_BODY, MAX_TTL_HOURS, MIN_TTL_HOURS, noteSchema, outcomeSchema, parsed, PROTOCOL, requestKind,
+import { access, AgentshakeError, bodySchema, conflict, temporary, fingerprint, idSchema,
+  invalid, MAX_BODY, noteSchema, outcomeSchema, parsed, PROTOCOL,
   stateAt, capacity, accountSchema, understandingSchema, preflight, type Payload, type Request } from './domain.js';
-import { approvalDigest, createDraft, defaultProfile, inputBody, inputText, inputJson, listBriefs, loadDraft, Profile,
+import { approvalDigest, defaultProfile, inputBody, inputText, inputJson, listBriefs, loadDraft, Profile,
   readBrief, readFileBounded, type Brief } from './local.js';
 import { assertProfileProtocol, Mailbox, type Context, type Pairing, type Settled } from './mailbox.js';
 import { expiredNext } from './transitions.js';
@@ -18,8 +18,10 @@ import { describePayload, indent, negotiationLines, nextSteps, summary } from '.
 import { describeEndpoint, endpointSchema, GitHubTransport, type Endpoint } from './transport/index.js';
 import { display, guard, inline, safeJson } from './util.js';
 import { VERSION } from './version.js';
+import { emitter, id, type Output } from './commands/common.js';
+import { registerDraftCommands } from './commands/drafts.js';
+import { describeCapabilities, registerSpecCommands } from './commands/spec.js';
 
-type Output = { data: unknown; human?: string; next?: string | string[] };
 const program = new Command();
 program.name('agentshake').version(VERSION, '-v, --version')
   .description('A handshake between your coding agents: operator-approved requests and results\n' +
@@ -51,18 +53,7 @@ function jsonRequested() {
   const end = argv.indexOf('--');
   return (end === -1 ? argv : argv.slice(0, end)).includes('--json');
 }
-function emit(output: Output) {
-  const next = output.next === undefined ? [] : Array.isArray(output.next) ? output.next : [output.next];
-  if (json()) {
-    const data = output.data !== null && typeof output.data === 'object' && !Array.isArray(output.data)
-      ? { ...output.data as object, ...(next.length ? { next } : {}) } : output.data;
-    process.stdout.write(safeJson(data) + '\n');
-    return;
-  }
-  const text = output.human ?? safeJson(output.data, 2);
-  process.stdout.write(guard(text) + '\n');
-  for (const line of next) process.stdout.write(guard('next: ' + line) + '\n');
-}
+const emit = emitter(json);
 
 function profileRoot() { return program.opts().profile ?? defaultProfile(); }
 /**
@@ -83,7 +74,6 @@ function withProfile<A extends unknown[]>(action: (mailbox: Mailbox, ...args: A)
 // ---------- helpers ----------
 /** POSIX shell-quotes a value printed inside a suggested command (paths, logins, keys, IDs). */
 const quote = (value: string) => /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
-const id = (value: string, label = 'ID') => parsed(idSchema, value, `${label} (expected a UUID)`);
 const short = (value: string) => value.slice(0, 8);
 function ago(ms: number, now: number) {
   const delta = ms - now;
@@ -698,6 +688,27 @@ program.command('demo').description('run a complete two-person handshake offline
     await runDemo({ dir: options.dir, json: json(), write: text => process.stdout.write(guard(text)) });
   });
 
+// ---------- offline protocol tools and the operator's own drafts ----------
+registerSpecCommands(program, emit);
+
+/** The configured exchange, read once per command; drafts go where `publish` looks for them. */
+function operatorExchange() {
+  let paths: { inbox: string; outbox: string } | undefined;
+  return () => {
+    if (paths) return paths;
+    const profile = new Profile(profileRoot());
+    try {
+      assertProfileProtocol(profile);
+      const { inbox, outbox } = profile.exchange();
+      paths = { inbox, outbox };
+      return paths;
+    } finally { profile.close(); }
+  };
+}
+registerDraftCommands(program.command('draft')
+  .description('write a draft yourself, in the same format your agent writes; review and send it with `agentshake publish`'),
+{ paths: operatorExchange() }, emit);
+
 // ---------- agent ----------
 const agent = program.command('agent').description('local agent interface: reads briefs, writes drafts; no network or profile access')
   .addOption(new Option('--inbox <dir>', 'approved brief directory (mount read-only)').env('AGENTSHAKE_INBOX'))
@@ -745,82 +756,11 @@ briefs.command('show <request>').description('print one brief').action((request:
   emit({ data: brief, human: briefLines(brief), next });
 });
 
-/** Agent drafts default their binding to the brief the operator released, i.e. what the agent was told. */
-function briefBinding(request: string) {
-  try { return readBrief(agentPaths().inbox, request); } catch { return undefined; }
-}
-function contextFor(request: string, given?: string) {
-  if (given) return parsed(digestSchema, given, 'context digest');
-  const brief = briefBinding(request);
-  if (!brief || brief.stage !== 'negotiating') {
-    return invalid('No negotiation brief for this request.', 'Pass --context <digest>, or ask your operator for a negotiation brief.');
-  }
-  return brief.context.digest;
-}
-function wrote(result: { draft: string }) {
-  emit({ data: result, human: `Draft ${result.draft} written. Nothing was sent.`, next: `Operator: agentshake publish ${result.draft}` });
-}
-const draft = agent.command('draft').description('write an unsent draft for your operator to publish');
-draft.command('new').description('propose a new request (offer) to the peer')
-  .addOption(new Option('--kind <kind>', 'request kind').choices(requestKind.options).makeOptionMandatory())
-  .requiredOption('--title <text>', 'one-line title (max 120 characters)')
-  .requiredOption('--body-file <path>', 'body file, or - for stdin (max 4096 bytes)')
-  .option('--ttl-hours <hours>', `expiry, ${MIN_TTL_HOURS} to ${MAX_TTL_HOURS} hours`, String(DEFAULT_TTL_HOURS))
-  .action(async (options: { kind: string; title: string; bodyFile: string; ttlHours: string }) => {
-    const ttl = /^\d{1,4}$/.test(options.ttlHours) ? Number(options.ttlHours) : NaN;
-    wrote(createDraft(agentPaths().outbox, { action: 'new', category: options.kind, title: options.title,
-      body: await inputBody(options.bodyFile), ttlHours: ttl }));
-  });
-draft.command('reply <request>').description('post-accept reply: a result or a clarification that does not change scope')
-  .requiredOption('--body-file <path>', 'body file, or - for stdin (max 4096 bytes)')
-  .action(async (request: string, options: { bodyFile: string }) => {
-    wrote(createDraft(agentPaths().outbox, { action: 'reply', request: id(request, 'request ID'), body: await inputBody(options.bodyFile) }));
-  });
-draft.command('ask <request>').description('recipient: ask for missing context (bound to the negotiation brief\'s context)')
-  .option('--topic <text>', 'one missing item').option('--need <text>', 'why it is needed')
-  .option('--items-file <path>', 'JSON list of {topic, need} (- for stdin)')
-  .option('--context <digest>', 'context digest (default: from your negotiation brief)')
-  .action(async (request: string, options: { topic?: string; need?: string; itemsFile?: string; context?: string }) => {
-    const target = id(request, 'request ID');
-    let items: unknown = [{ topic: options.topic, need: options.need }];
-    if (options.itemsFile) {
-      const value = parsed(askFileSchema, await inputJson(options.itemsFile), 'questions file');
-      items = Array.isArray(value) ? value : value.items;
-    } else if (!options.topic || !options.need) invalid('Give --topic and --need, or --items-file.');
-    wrote(createDraft(agentPaths().outbox, { action: 'ask', request: target, context: contextFor(target, options.context), items }));
-  });
-draft.command('supply <request>').description('requester: answer the open questions, resolve earlier gaps, or add a note')
-  .option('--answers-file <path>', 'JSON {"answers": [{item, status, body?}], "resolutions"?: [{ask, item, body}], "note"?} (- for stdin)')
-  .option('--note-file <path>', 'a note when no question round is open (- for stdin)')
-  .option('--ask <id>', 'question round answered (default: from your negotiation brief)')
-  .option('--context <digest>', 'context for a note (default: from your negotiation brief)')
-  .action(async (request: string, options: { answersFile?: string; noteFile?: string; ask?: string; context?: string }) => {
-    const target = id(request, 'request ID');
-    if (Boolean(options.answersFile) === Boolean(options.noteFile)) invalid('Give exactly one of --answers-file or --note-file.');
-    if (options.answersFile) {
-      const value = parsed(answersFileSchema, await inputJson(options.answersFile), 'answers file');
-      if (!value.answers.length) {
-        // Only resolutions (and a note): bound to the context, not to a question round.
-        wrote(createDraft(agentPaths().outbox, { action: 'supply', request: target, context: contextFor(target, options.context), ...value }));
-        return;
-      }
-      const ask = options.ask ?? briefBinding(target)?.open?.ask;
-      if (!ask) invalid('No open question round is named in your brief.', 'Pass --ask <id>, or ask your operator for a negotiation brief.');
-      wrote(createDraft(agentPaths().outbox, { action: 'supply', request: target, ask, ...value }));
-    } else {
-      wrote(createDraft(agentPaths().outbox, { action: 'supply', request: target, context: contextFor(target, options.context),
-        note: await inputText(options.noteFile!, noteSchema, 'note', MAX_BODY) }));
-    }
-  });
-draft.command('confirm <request>').description('recipient: state its understanding and known limitations of the context')
-  .requiredOption('--understanding-file <path>', 'understanding, max 2048 bytes (- for stdin)')
-  .option('--context <digest>', 'context digest (default: from your negotiation brief)')
-  .action(async (request: string, options: { understandingFile: string; context?: string }) => {
-    const target = id(request, 'request ID');
-    wrote(createDraft(agentPaths().outbox, { action: 'confirm', request: target, context: contextFor(target, options.context),
-      understanding: await inputText(options.understandingFile, understandingSchema, 'understanding', 2048) }));
-  });
-agent.command('mcp').description('serve list_briefs, read_brief and create_draft over MCP stdio').action(async () => {
+registerDraftCommands(agent.command('draft').description('write an unsent draft for your operator to publish'),
+  { paths: agentPaths }, emit);
+agent.command('capabilities').description('print what this installation supports (offline; grants nothing)')
+  .action(() => describeCapabilities(emit));
+agent.command('mcp').description('serve list_briefs, read_brief, create_draft and get_capabilities over MCP stdio').action(async () => {
   const { serve } = await import('./mcp.js');
   await serve(agentPaths());
 });

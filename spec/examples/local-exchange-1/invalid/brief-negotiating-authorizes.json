@@ -1,0 +1,19 @@
+{
+  "request": "00000000-0000-4000-8000-000000000002",
+  "role": "sender",
+  "category": "review",
+  "stage": "negotiating",
+  "authorizesWork": true,
+  "body": "Answer the two questions from our notes; the limit is unknown.",
+  "expires": 1800604800000,
+  "version": 2,
+  "context": {
+    "revision": 1,
+    "digest": "b18f6adda6e827acce5763ee676894101bfc33b811eca359b3d4dc6a1d7a07bb"
+  },
+  "open": {
+    "ask": "00000000-0000-4000-8000-000000000003",
+    "items": 2
+  },
+  "gaps": []
+}

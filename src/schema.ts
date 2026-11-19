@@ -122,13 +122,22 @@ export const ledgerSchema = z.strictObject({ genesis: genesisSchema, events: z.a
 export type Ledger = z.infer<typeof ledgerSchema>;
 export type Genesis = Ledger['genesis'];
 
-export function parsed<T>(schema: z.ZodType<T>, value: unknown, label: string, reason: Reason = 'usage'): T {
+export type ParseResult<T> = { ok: true; data: T } | { ok: false; reason: Reason; message: string; path: string };
+
+/** Result form of `parsed`. Only schema-authored messages are surfaced; input values are never echoed. */
+export function parseResult<T>(schema: z.ZodType<T>, value: unknown, label: string, reason: Reason = 'usage'): ParseResult<T> {
   const result = schema.safeParse(value);
-  if (result.success) return result.data;
-  // Only schema-authored messages are surfaced; input values are never echoed.
+  if (result.success) return { ok: true, data: result.data };
   const issue = result.error.issues[0];
   const detail = issue && issue.code === 'custom' ? ' ' + issue.message
     : issue && issue.code === 'too_big' && typeof issue.message === 'string' && (issue.message.startsWith('Ask') || issue.message.startsWith('Resolve')) ? ' ' + issue.message
     : issue && issue.code === 'too_small' && typeof issue.message === 'string' && issue.message.startsWith('Ask') ? ' ' + issue.message : '';
-  throw new AgentshakeError(reason, `Invalid ${label}.${detail}`);
+  const path = (issue?.path ?? []).map(part => '/' + String(part).replace(/~/g, '~0').replace(/\//g, '~1')).join('');
+  return { ok: false, reason, message: `Invalid ${label}.${detail}`, path };
+}
+
+export function parsed<T>(schema: z.ZodType<T>, value: unknown, label: string, reason: Reason = 'usage'): T {
+  const result = parseResult(schema, value, label, reason);
+  if (result.ok) return result.data;
+  throw new AgentshakeError(result.reason, result.message);
 }

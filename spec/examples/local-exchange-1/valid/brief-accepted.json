@@ -1,0 +1,15 @@
+{
+  "request": "00000000-0000-4000-8000-000000000002",
+  "role": "recipient",
+  "category": "review",
+  "stage": "accepted",
+  "authorizesWork": true,
+  "body": "Review feature/retry with the 5-attempt limit. Report findings.",
+  "expires": 1800604800000,
+  "version": 8,
+  "context": {
+    "revision": 4,
+    "digest": "c6529ad5ed81d5ce966da0aa720525e96e064feff283dcd3ae05a0c87092225b"
+  },
+  "gaps": []
+}

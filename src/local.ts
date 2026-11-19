@@ -62,7 +62,7 @@ export type Brief = z.infer<typeof briefSchema>;
 export const localStates = ['none', 'pending', 'released', 'already-present', 'skipped-closed', 'held-destination-changed',
   'superseded'] as const;
 export type LocalState = typeof localStates[number];
-const FILE_CAP = 32 * 1024;
+export const FILE_CAP = 32 * 1024;
 const MAX_SCAN = 512;
 const MAX_JOURNAL = 512;
 const heldLocks = new Set<string>();
@@ -315,6 +315,17 @@ function slot(id: string) { return parsed(idSchema, id, 'ID (expected a UUID)') 
 
 /** Reads one regular, single-link file without following symlinks, with a byte cap. */
 export function readFileBounded(path: string, limit: number): string {
+  const data = readFilePrefix(path, limit);
+  if (data.length > limit) invalid(`Input exceeds ${limit} bytes.`);
+  return utf8(data);
+}
+
+/**
+ * At most `limit + 1` bytes of one regular, single-link file, without following symlinks. A longer
+ * result means the file exceeds `limit`; the caller decides what that means. Filesystem problems
+ * (missing, symlink, not a regular file, hard link, permissions) are errors, never content.
+ */
+export function readFilePrefix(path: string, limit: number): Buffer {
   let fd: number;
   try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch (error) {
@@ -327,7 +338,6 @@ export function readFileBounded(path: string, limit: number): string {
     const stat = fstatSync(fd);
     if (!stat.isFile()) invalid('Input must be a regular file.');
     if (stat.nlink !== 1) invalid('Hard-linked input is refused.');
-    if (stat.size > limit) invalid(`Input exceeds ${limit} bytes.`);
     const data = Buffer.alloc(limit + 1);
     let length = 0;
     while (length < data.length) {
@@ -335,9 +345,20 @@ export function readFileBounded(path: string, limit: number): string {
       if (!count) break;
       length += count;
     }
-    if (length > limit) invalid(`Input exceeds ${limit} bytes.`);
-    return utf8(data.subarray(0, length));
+    return data.subarray(0, length);
   } finally { closeSync(fd); }
+}
+
+/** At most `limit + 1` bytes of standard input; reading stops there. */
+export async function readStdinPrefix(limit: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let length = 0;
+  for await (const chunk of process.stdin) {
+    chunks.push(chunk as Buffer);
+    length += (chunk as Buffer).length;
+    if (length > limit) { process.stdin.destroy(); break; }
+  }
+  return Buffer.concat(chunks).subarray(0, limit + 1);
 }
 
 export async function readStdinBounded(limit: number): Promise<string> {

@@ -1,7 +1,7 @@
 {
   "name": "agentshake",
-  "version": "0.2.0",
-  "description": "A handshake between your coding agents: operator-approved, signed context negotiation, requests and results between two developers over a private GitHub repository.",
+  "version": "0.3.0",
+  "description": "An open, offline-capable protocol and reference CLI for operator-approved, signed context negotiation, requests and results between two principals and their coding agents.",
   "keywords": [
     "coding-agents",
     "mcp",
@@ -9,7 +9,10 @@
     "github",
     "cli",
     "ed25519",
-    "code-review"
+    "code-review",
+    "protocol",
+    "json-schema",
+    "offline"
   ],
   "homepage": "https://github.com/codefulteam/agentshake#readme",
   "bugs": {
@@ -36,6 +39,7 @@
     "dist/**/*.js",
     "dist/**/*.d.ts",
     "docs/*.md",
+    "spec/**",
     "scripts/demo.sh",
     "README.md",
     "LICENSE",
@@ -54,20 +58,28 @@
     "build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
-    "test:installed": "node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs test/fixes.test.mjs test/guidance.test.mjs",
+    "test:installed": "node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs test/fixes.test.mjs test/guidance.test.mjs test/conformance-lifecycle.test.mjs test/fix.test.mjs",
     "smoke": "bash scripts/smoke.sh",
     "demo": "node dist/cli.js demo",
     "prepack": "npm run build",
-    "test:isolation:macos": "bash test/isolation/sandbox-exec.sh"
+    "test:isolation:macos": "bash test/isolation/sandbox-exec.sh",
+    "spec:fixtures": "npm run build && node scripts/spec-fixtures.mjs",
+    "spec:check": "node scripts/spec-fixtures.mjs --check"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
     "commander": "15.1.0",
     "zod": "4.6.7"
   },
+  "bundleDependencies": [
+    "@modelcontextprotocol/server",
+    "commander",
+    "zod"
+  ],
   "devDependencies": {
     "@modelcontextprotocol/client": "2.4.0",
     "@types/node": "24.19.2",
+    "ajv": "8.20.0",
     "typescript": "5.9.3"
   }
 }

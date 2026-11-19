@@ -1,0 +1,934 @@
+{
+  "$schema": "urn:uuid:59168adc-f4af-4e5d-a97a-f29e8f8e6d1b",
+  "format": "agentshake-conformance/1",
+  "protocol": 2,
+  "cases": [
+    {
+      "id": "N-I1",
+      "input": "examples/protocol-2/invalid/not-json.json",
+      "as": "ledger",
+      "description": "Not JSON at all.",
+      "expect": {
+        "valid": false,
+        "stage": "input",
+        "code": "input.json",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-I2",
+      "input": "examples/protocol-2/invalid/oversized.json",
+      "as": "ledger",
+      "description": "Larger than 256 KiB.",
+      "expect": {
+        "valid": false,
+        "stage": "input",
+        "code": "input.size",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-I3",
+      "input": "examples/protocol-2/invalid/invalid-utf8.json",
+      "as": "ledger",
+      "description": "A ledger file containing a byte that is not UTF-8.",
+      "expect": {
+        "valid": false,
+        "stage": "input",
+        "code": "input.encoding",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-V4",
+      "input": "examples/protocol-2/invalid/version-deeply-nested.json",
+      "as": "ledger",
+      "description": "A genesis version made of 15 000 nested arrays; the diagnostic must stay bounded.",
+      "expect": {
+        "valid": false,
+        "stage": "version",
+        "code": "version.unsupported",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-V5",
+      "input": "examples/protocol-2/invalid/version-very-deeply-nested.json",
+      "as": "ledger",
+      "description": "A genesis version made of 120 000 nested arrays (still under the byte cap).",
+      "expect": {
+        "valid": false,
+        "stage": "version",
+        "code": "version.unsupported",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-V6",
+      "input": "examples/protocol-2/invalid/version-missing.json",
+      "as": "ledger",
+      "description": "A genesis without a version member is a schema failure, not a version failure.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-P1",
+      "input": "examples/protocol-2/invalid/early-signature-late-chain.json",
+      "as": "ledger",
+      "description": "A bad signature at event 0 and a bad chain at event 1: per-event order reports event 0.",
+      "expect": {
+        "valid": false,
+        "stage": "signature",
+        "code": "signature.invalid",
+        "rule": "S9",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-S1",
+      "input": "examples/protocol-2/invalid/event-unknown-approvedBy.json",
+      "as": "ledger",
+      "description": "An event claims \"approvedBy\": \"human\"; records are closed.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S2",
+      "input": "examples/protocol-2/invalid/payload-unknown-role.json",
+      "as": "ledger",
+      "description": "A payload claims \"role\": \"admin\"; there is no such field.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S3",
+      "input": "examples/protocol-2/invalid/roster-three.json",
+      "as": "ledger",
+      "description": "A roster with three principals.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S4",
+      "input": "examples/protocol-2/invalid/title-newline.json",
+      "as": "ledger",
+      "description": "A title containing a newline.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S5",
+      "input": "examples/protocol-2/invalid/ttl-too-long.json",
+      "as": "ledger",
+      "description": "ttlHours 337 is over the 336 limit.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S6",
+      "input": "examples/protocol-2/invalid/accept-no-confirmation.json",
+      "as": "ledger",
+      "description": "An accept without its confirmation field.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S7",
+      "input": "examples/protocol-2/invalid/supplied-without-body.json",
+      "as": "ledger",
+      "description": "A supplied answer without a body.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-S8",
+      "input": "examples/protocol-2/invalid/body-over-bytes.json",
+      "as": "ledger",
+      "description": "A body of 2100 \"é\": 2100 code points but 4200 UTF-8 bytes (rule S1).",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "rule": "S1",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-S9",
+      "input": "examples/protocol-2/invalid/body-lone-surrogate.json",
+      "as": "ledger",
+      "description": "A body with an unpaired surrogate escape (rule S2).",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "rule": "S2",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-S10",
+      "input": "examples/protocol-2/invalid/supply-total-over-bytes.json",
+      "as": "ledger",
+      "description": "Two answers of 2100 bytes each: 4200 bytes in one supply (rule S3).",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "rule": "S3",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-V1",
+      "input": "examples/protocol-2/invalid/version-1.json",
+      "as": "ledger",
+      "description": "A protocol 1 genesis (retired; fresh mailbox advice).",
+      "expect": {
+        "valid": false,
+        "stage": "version",
+        "code": "version.retired",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-V2",
+      "input": "examples/protocol-2/invalid/version-3.json",
+      "as": "ledger",
+      "description": "An unknown protocol version 3.",
+      "expect": {
+        "valid": false,
+        "stage": "version",
+        "code": "version.unsupported",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-V3",
+      "input": "examples/protocol-2/invalid/event-version-3.json",
+      "as": "ledger",
+      "description": "An event version 3 inside a version 2 ledger.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-C1",
+      "input": "examples/protocol-2/invalid/pretty-printed.json",
+      "as": "ledger",
+      "description": "A valid ledger, pretty-printed (rule S5).",
+      "expect": {
+        "valid": false,
+        "stage": "canonical",
+        "code": "canonical.mismatch",
+        "rule": "S5",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-G1",
+      "input": "examples/protocol-2/invalid/roster-duplicate-key.json",
+      "as": "ledger",
+      "description": "Both roster entries use the same key (rule S6).",
+      "expect": {
+        "valid": false,
+        "stage": "genesis",
+        "code": "genesis.roster",
+        "rule": "S6",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-G2",
+      "input": "examples/protocol-2/invalid/roster-key-not-ed25519.json",
+      "as": "ledger",
+      "description": "A 59-character key that is not Ed25519 SPKI DER (rule S6).",
+      "expect": {
+        "valid": false,
+        "stage": "genesis",
+        "code": "genesis.roster",
+        "rule": "S6",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-G3",
+      "input": "examples/protocol-2/invalid/genesis-tampered.json",
+      "as": "ledger",
+      "description": "The genesis branch changed after signing (rule S7).",
+      "expect": {
+        "valid": false,
+        "stage": "genesis",
+        "code": "genesis.signature",
+        "rule": "S7",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-H1",
+      "input": "examples/protocol-2/invalid/previous-wrong.json",
+      "as": "ledger",
+      "description": "An event whose previous digest does not chain (rule S8).",
+      "expect": {
+        "valid": false,
+        "stage": "chain",
+        "code": "chain.previous",
+        "rule": "S8",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-H2",
+      "input": "examples/protocol-2/invalid/event-id-reused.json",
+      "as": "ledger",
+      "description": "A second event reusing the offer event ID (rule S8).",
+      "expect": {
+        "valid": false,
+        "stage": "chain",
+        "code": "chain.duplicate-event",
+        "rule": "S8",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-H3",
+      "input": "examples/protocol-2/invalid/epoch-mismatch.json",
+      "as": "ledger",
+      "description": "An event from another mailbox epoch (rule S8).",
+      "expect": {
+        "valid": false,
+        "stage": "chain",
+        "code": "chain.epoch",
+        "rule": "S8",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-X1",
+      "input": "examples/protocol-2/invalid/body-tampered.json",
+      "as": "ledger",
+      "description": "The offer title changed after signing (rule S9).",
+      "expect": {
+        "valid": false,
+        "stage": "signature",
+        "code": "signature.invalid",
+        "rule": "S9",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-X2",
+      "input": "examples/protocol-2/invalid/v1-signing-prefix.json",
+      "as": "ledger",
+      "description": "An event signed with the protocol 1 prefix \"agentshake/v1/event\" (rule S9).",
+      "expect": {
+        "valid": false,
+        "stage": "signature",
+        "code": "signature.invalid",
+        "rule": "S9",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-X3",
+      "input": "examples/protocol-2/invalid/actor-outside-roster.json",
+      "as": "ledger",
+      "description": "An event by account 303, which is not in the roster (rule S9).",
+      "expect": {
+        "valid": false,
+        "stage": "signature",
+        "code": "signature.actor",
+        "rule": "S9",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-R1",
+      "input": "examples/protocol-2/invalid/requester-asks.json",
+      "as": "ledger",
+      "description": "The requester asks for context (rule S10).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.role",
+        "rule": "S10",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-R2",
+      "input": "examples/protocol-2/invalid/recipient-supplies.json",
+      "as": "ledger",
+      "description": "The recipient supplies context (rule S10).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.role",
+        "rule": "S10",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-R3",
+      "input": "examples/protocol-2/invalid/requester-accepts.json",
+      "as": "ledger",
+      "description": "The requester accepts its own request (rule S10).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.role",
+        "rule": "S10",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-R4",
+      "input": "examples/protocol-2/invalid/offer-to-self.json",
+      "as": "ledger",
+      "description": "An offer addressed to its own signer (rule S10).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.role",
+        "rule": "S10",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T1",
+      "input": "examples/protocol-2/invalid/reply-before-accept.json",
+      "as": "ledger",
+      "description": "A reply while the request is still pending (rule S17).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S17",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T2",
+      "input": "examples/protocol-2/invalid/accept-stale-confirmation.json",
+      "as": "ledger",
+      "description": "An accept citing a confirmation made stale by a later note (rule S16).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S16",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T3",
+      "input": "examples/protocol-2/invalid/confirm-wrong-gaps.json",
+      "as": "ledger",
+      "description": "A confirmation that omits the unavailable item (rule S14).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S14",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T4",
+      "input": "examples/protocol-2/invalid/resolution-not-a-gap.json",
+      "as": "ledger",
+      "description": "A resolution of an item that was supplied, not withheld or unavailable (rule S15).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S15",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T5",
+      "input": "examples/protocol-2/invalid/fifth-supply.json",
+      "as": "ledger",
+      "description": "A fifth supply after the budget of four (rule S17).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S17",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T6",
+      "input": "examples/protocol-2/invalid/after-expiry.json",
+      "as": "ledger",
+      "description": "An ask timestamped at the request expiry (rule S18).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S18",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T7",
+      "input": "examples/protocol-2/invalid/complete-cites-peer-reply.json",
+      "as": "ledger",
+      "description": "The recipient completes citing the requester's reply (rule S17).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S17",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T8",
+      "input": "examples/protocol-2/invalid/after-terminal.json",
+      "as": "ledger",
+      "description": "An ask after the request was declined (rule S17).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S17",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T9",
+      "input": "examples/protocol-2/invalid/clock-behind.json",
+      "as": "ledger",
+      "description": "A supply timestamped before the request's last update (rule S18).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S18",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T10",
+      "input": "examples/protocol-2/invalid/stale-revision.json",
+      "as": "ledger",
+      "description": "An event prepared for an older request revision (rule S11).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S11",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-T11",
+      "input": "examples/protocol-2/invalid/stale-context.json",
+      "as": "ledger",
+      "description": "A confirmation bound to the offer context after a supply changed it (rule S12).",
+      "expect": {
+        "valid": false,
+        "stage": "transition",
+        "code": "transition.state",
+        "rule": "S12",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-K1",
+      "input": "examples/protocol-2/invalid/request-reservation.json",
+      "as": "ledger",
+      "description": "A requester reply that leaves no room for the recipient reply and the close (rule S19).",
+      "expect": {
+        "valid": false,
+        "stage": "capacity",
+        "code": "capacity.request",
+        "rule": "S19",
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-offer",
+      "input": "examples/protocol-2/valid/offer.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: offer.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-ask",
+      "input": "examples/protocol-2/valid/ask.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: ask.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-supply-answers",
+      "input": "examples/protocol-2/valid/supply-answers.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: supply-answers.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-confirm-with-gaps",
+      "input": "examples/protocol-2/valid/confirm-with-gaps.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: confirm-with-gaps.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-supply-note",
+      "input": "examples/protocol-2/valid/supply-note.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: supply-note.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-supply-resolution",
+      "input": "examples/protocol-2/valid/supply-resolution.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: supply-resolution.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-accept",
+      "input": "examples/protocol-2/valid/accept.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: accept.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-reply",
+      "input": "examples/protocol-2/valid/reply.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: reply.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-complete-completed",
+      "input": "examples/protocol-2/valid/complete-completed.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: complete-completed.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-complete-failed",
+      "input": "examples/protocol-2/valid/complete-failed.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: complete-failed.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-decline",
+      "input": "examples/protocol-2/valid/decline.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: decline.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-cancel-pending",
+      "input": "examples/protocol-2/valid/cancel-pending.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: cancel-pending.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-cancel-accepted",
+      "input": "examples/protocol-2/valid/cancel-accepted.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: cancel-accepted.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-offer-hostile-prose",
+      "input": "examples/protocol-2/valid/offer-hostile-prose.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: offer-hostile-prose.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-offer-uppercase-uuid",
+      "input": "examples/protocol-2/valid/offer-uppercase-uuid.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: offer-uppercase-uuid.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-genesis-channel-lone-surrogate",
+      "input": "examples/protocol-2/valid/genesis-channel-lone-surrogate.json",
+      "as": "ledger",
+      "description": "Valid ledger ending in: genesis-channel-lone-surrogate.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-new",
+      "input": "examples/local-exchange-1/valid/draft-new.json",
+      "as": "draft",
+      "description": "Valid draft: draft-new.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-reply",
+      "input": "examples/local-exchange-1/valid/draft-reply.json",
+      "as": "draft",
+      "description": "Valid draft: draft-reply.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-ask",
+      "input": "examples/local-exchange-1/valid/draft-ask.json",
+      "as": "draft",
+      "description": "Valid draft: draft-ask.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-supply-answers",
+      "input": "examples/local-exchange-1/valid/draft-supply-answers.json",
+      "as": "draft",
+      "description": "Valid draft: draft-supply-answers.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-supply-note",
+      "input": "examples/local-exchange-1/valid/draft-supply-note.json",
+      "as": "draft",
+      "description": "Valid draft: draft-supply-note.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-draft-confirm",
+      "input": "examples/local-exchange-1/valid/draft-confirm.json",
+      "as": "draft",
+      "description": "Valid draft: draft-confirm.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-brief-negotiating",
+      "input": "examples/local-exchange-1/valid/brief-negotiating.json",
+      "as": "brief",
+      "description": "Valid brief: brief-negotiating.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "P-brief-accepted",
+      "input": "examples/local-exchange-1/valid/brief-accepted.json",
+      "as": "brief",
+      "description": "Valid brief: brief-accepted.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass"
+      }
+    },
+    {
+      "id": "N-L1",
+      "input": "examples/local-exchange-1/invalid/draft-accept.json",
+      "as": "draft",
+      "description": "A draft of a privileged action (accept); accept is not a draft action.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-L2",
+      "input": "examples/local-exchange-1/invalid/draft-authorizes-work.json",
+      "as": "draft",
+      "description": "A draft that claims \"authorizesWork\": true.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-L3",
+      "input": "examples/local-exchange-1/invalid/draft-approved.json",
+      "as": "draft",
+      "description": "A draft that claims \"approved\": true.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-L4",
+      "input": "examples/local-exchange-1/invalid/draft-role-admin.json",
+      "as": "draft",
+      "description": "A draft that claims \"role\": \"admin\".",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-L5",
+      "input": "examples/local-exchange-1/invalid/draft-supply-ask-and-context.json",
+      "as": "draft",
+      "description": "A supply draft naming both a question round and a context.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "N-L6",
+      "input": "examples/local-exchange-1/invalid/brief-negotiating-authorizes.json",
+      "as": "brief",
+      "description": "A negotiation brief that claims to authorize work.",
+      "expect": {
+        "valid": false,
+        "stage": "schema",
+        "code": "schema.invalid",
+        "jsonSchema": "fail"
+      }
+    },
+    {
+      "id": "P-conversation-human-human",
+      "input": "examples/protocol-2/conversations/human-human/ledger.json",
+      "as": "ledger",
+      "description": "Full conversation: human-human.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass",
+        "state": "examples/protocol-2/conversations/human-human/expected-state.json"
+      }
+    },
+    {
+      "id": "P-conversation-human-agent",
+      "input": "examples/protocol-2/conversations/human-agent/ledger.json",
+      "as": "ledger",
+      "description": "Full conversation: human-agent.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass",
+        "state": "examples/protocol-2/conversations/human-agent/expected-state.json"
+      }
+    },
+    {
+      "id": "P-conversation-agent-agent",
+      "input": "examples/protocol-2/conversations/agent-agent/ledger.json",
+      "as": "ledger",
+      "description": "Full conversation: agent-agent.",
+      "expect": {
+        "valid": true,
+        "jsonSchema": "pass",
+        "state": "examples/protocol-2/conversations/agent-agent/expected-state.json"
+      }
+    }
+  ]
+}

@@ -58,7 +58,7 @@ test('help, version, demo and actionable errors work without GitHub', { timeout:
   const help = h.run(['--help'], { json: false });
   assert.match(help.stdout, /agentshake demo/);
   assert.match(help.stdout, /Exit codes/);
-  assert.match(h.run(['--version'], { json: false }).stdout, /^0\.2\.0/);
+  assert.match(h.run(['--version'], { json: false }).stdout, /^0\.3\.0/);
   const demo = h.run(['demo'], { json: false });
   assert.match(demo.stdout, /offline demo/i);
   assert.match(demo.stdout, /No GitHub account or network is used/);

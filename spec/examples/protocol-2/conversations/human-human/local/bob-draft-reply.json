@@ -1,0 +1,5 @@
+{
+  "action": "reply",
+  "request": "00000000-0000-4000-8000-000000000002",
+  "body": "Yes, with a per-worker lock file."
+}

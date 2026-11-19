@@ -1,0 +1,11 @@
+{
+  "action": "ask",
+  "request": "00000000-0000-4000-8000-000000000002",
+  "context": "b18f6adda6e827acce5763ee676894101bfc33b811eca359b3d4dc6a1d7a07bb",
+  "items": [
+    {
+      "topic": "Which branch?",
+      "need": "Needed to scope the work: which branch?"
+    }
+  ]
+}

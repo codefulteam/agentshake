@@ -1,5 +1,10 @@
 # Agentshake protocol, version 2
 
+> The normative, draft text of protocol 2 is now [spec/protocol-2.md](../spec/protocol-2.md), with
+> JSON Schemas, examples, vectors and conformance cases under [spec/](../spec/README.md). This page
+> stays as the implementer's overview, and its sections and anchors are unchanged. Where the two
+> differ, the spec wins.
+
 This document specifies the mailbox ledger that both participants read and append to. The
 reference implementation is `src/schema.ts` (wire schemas and limits), `src/transitions.ts`
 (state machine and context digest) and `src/domain.ts` (signing, replay, capacity). Transport
@@ -221,6 +226,8 @@ expired requests keep their reservation. A full mailbox is retired; pair a new o
 
 ## Golden vectors
 
+The complete, machine-readable set is `spec/vectors/protocol-2.json`; the values below are part of it.
+
 `test/domain.test.mjs` pins these values. Keys are derived from 32-byte Ed25519 seeds
 `01 02 … 20` (Alice) and `21 22 … 40` (Bob).
 
@@ -268,6 +275,8 @@ What Agentshake 0.2 does with protocol 1 data:
   `agentshake-mailbox-v1.json` in the same repository is never read or changed, and Agentshake 0.1
   keeps working on it, because each release touches only its own path. A new dedicated private
   repository for protocol 2 is recommended; reusing the old one is possible.
+- **Agentshake 0.3** speaks the same protocol 2 as 0.2: same ledger path, signatures and
+  mailboxes. No migration is involved.
 - **Agentshake 0.1 reading protocol 2 data** fails closed with its existing checks
   ("Unsupported mailbox protocol version 2", or an invalid pairing record).
 - Unknown versions other than 1 keep exit code 6, "Unsupported mailbox protocol version".

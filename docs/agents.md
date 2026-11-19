@@ -4,7 +4,7 @@ Agentshake does not call any model and has no built-in integration with any agen
 offers two generic interfaces that any agent host can use:
 
 1. **Shell**: the agent runs `agentshake agent …` commands.
-2. **MCP over stdio**: the host launches `agentshake agent … mcp` and calls three tools.
+2. **MCP over stdio**: the host launches `agentshake agent … mcp` and calls four tools.
 
 Both interfaces see only two directories: the **inbox** (briefs your operator released, mount it
 read-only) and the **outbox** (drafts the agent writes). They never contact the network, read the
@@ -15,7 +15,7 @@ operator profile or call `gh`. Publishing, accepting and completing are operator
 | Integration | Status in v0.2 |
 | --- | --- |
 | Shell commands (`agentshake agent briefs …`, `draft …`) | Tested through the installed executable |
-| MCP stdio server with the official MCP TypeScript SDK client 2.4.0 | Tested: initialize, list tools, all three tools (including ask, supply and confirm drafts), error results |
+| MCP stdio server with the official MCP TypeScript SDK client 2.4.0 | Tested: initialize, list tools, all four tools (including ask, supply and confirm drafts), error results |
 | Isolation: agent as a separate UID (`--group`) in a Linux container; agent under `sandbox-exec` on macOS | Tested by `test/isolation/` scripts (see [Isolation](#isolation)) |
 | Any specific agent host (Codex, Claude, Grok, Kimi, DeepSeek-based agents, others) | **Not tested.** Expected to work wherever the host can run shell commands or launch a stdio MCP server, but unverified |
 
@@ -56,10 +56,18 @@ other side's text unless your operator typed it. `draft ask`, `draft supply` and
 take their binding (context digest or round ID) from the brief by default, so a draft always says
 what it was written for. When the context changes, the operator side removes the stale negotiation
 brief and `publish` refuses drafts bound to the old context; ask your operator for a new brief.
-`unavailable` and `withheld` answers are gaps, never evidence: say what you could not check. As
+A work brief means approved *when it was issued*. The requester can cancel later, and you will not
+see that until your operator reads the mailbox again, which removes the briefs of canceled,
+declined and expired requests. Expiry is different: from the brief's `expires` time (local clock),
+`briefs show`/`read_brief` refuse it and `briefs list`/`list_briefs` omit it, even without a refresh. Publishing a reply to a closed request is refused. `unavailable` and `withheld`
+answers are gaps, never evidence: say what you could not check. As
 the requester, if you actually recover a listed gap, draft a supply with
 `resolutions: [{ ask, item, body }]` containing the recovered content; never claim a resolution
 without the content.
+
+`agentshake agent capabilities` prints the same document as `get_capabilities`. Your operator can
+write the same drafts with `agentshake draft …`; they are the `local-exchange/1` documents in
+[spec/local-exchange.md](../spec/local-exchange.md).
 
 Add `--json` for machine-readable output. Kinds are `question`, `review`,
 `proposal` and `task`. Bodies are at most 4096 bytes and may not contain terminal control
@@ -102,6 +110,7 @@ Tools:
 | `list_briefs` | `{}` | `[{ request, role, category, stage, authorizesWork, expires, version, context, open?, gaps }]` |
 | `read_brief` | `{ request }` | the same plus `body` |
 | `create_draft` | `{ draft }`, one of the drafts below | `{ draft, action, request? }` |
+| `get_capabilities` | `{}` | the `capabilities-1` document: protocol, operations, the draft actions you can propose, limits, schema IDs (static; grants nothing) |
 
 | `draft.action` | Fields | Who |
 | --- | --- | --- |

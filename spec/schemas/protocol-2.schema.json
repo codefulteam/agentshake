@@ -1,0 +1,591 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:uuid:5e1a8e47-e60e-4632-b1d0-80b6d5a2e130",
+  "title": "Agentshake protocol 2 ledger (syntax)",
+  "description": "Syntax of protocol 2 records. Passing this schema does not make a ledger valid: canonical bytes, signatures, chain, roles, state and capacity are separate validation stages (spec/protocol-2.md, Validation).",
+  "$ref": "#/$defs/ledger",
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "$comment": "UUID version 4 in either hex case; IDs are compared as exact strings. Writers SHOULD use lower case."
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{85}[AQgw]$",
+      "$comment": "64-byte Ed25519 signature, unpadded base64url with canonical trailing bits."
+    },
+    "publicKey": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{59}$",
+      "$comment": "Syntax only. That it is an Ed25519 SubjectPublicKeyInfo whose re-encoding is identical is the genesis stage (S6)."
+    },
+    "principal": {
+      "type": "string",
+      "pattern": "^[1-9][0-9]{0,19}$",
+      "$comment": "Profile-defined principal ID (GitHub profile: numeric user ID; file profile: self-declared)."
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120,
+      "pattern": "^[^\\u0000-\\u001f\\u007f-\\u009f\\u2028\\u2029]*$",
+      "$comment": "One line, at most 120 code points (hence at most 480 UTF-8 bytes); well-formed Unicode is S2."
+    },
+    "body": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]*$",
+      "$comment": "body: at most 4096 UTF-8 bytes and well-formed Unicode are semantic rules (S1, S2); maxLength in code points is a necessary bound only."
+    },
+    "need": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512,
+      "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]*$",
+      "$comment": "need: at most 512 UTF-8 bytes and well-formed Unicode are semantic rules (S1, S2); maxLength in code points is a necessary bound only."
+    },
+    "understanding": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "^[^\\u0000-\\u0008\\u000b-\\u001f\\u007f-\\u009f]*$",
+      "$comment": "understanding: at most 2048 UTF-8 bytes and well-formed Unicode are semantic rules (S1, S2); maxLength in code points is a necessary bound only."
+    },
+    "item": {
+      "type": "object",
+      "properties": {
+        "topic": {
+          "$ref": "#/$defs/title"
+        },
+        "need": {
+          "$ref": "#/$defs/need"
+        }
+      },
+      "required": [
+        "topic",
+        "need"
+      ],
+      "additionalProperties": false
+    },
+    "itemNumber": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5
+    },
+    "answer": {
+      "type": "object",
+      "properties": {
+        "item": {
+          "$ref": "#/$defs/itemNumber"
+        },
+        "status": {
+          "enum": [
+            "supplied",
+            "unavailable",
+            "withheld"
+          ]
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        }
+      },
+      "required": [
+        "item",
+        "status"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "status": {
+            "const": "supplied"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "body": true
+        },
+        "required": [
+          "body"
+        ]
+      }
+    },
+    "resolution": {
+      "type": "object",
+      "properties": {
+        "ask": {
+          "$ref": "#/$defs/id"
+        },
+        "item": {
+          "$ref": "#/$defs/itemNumber"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        }
+      },
+      "required": [
+        "ask",
+        "item",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "gap": {
+      "type": "object",
+      "properties": {
+        "ask": {
+          "$ref": "#/$defs/id"
+        },
+        "item": {
+          "$ref": "#/$defs/itemNumber"
+        },
+        "status": {
+          "enum": [
+            "unavailable",
+            "withheld"
+          ]
+        }
+      },
+      "required": [
+        "ask",
+        "item",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "category": {
+      "enum": [
+        "question",
+        "review",
+        "proposal",
+        "task"
+      ]
+    },
+    "roster": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/rosterEntry"
+        },
+        {
+          "$ref": "#/$defs/rosterEntry"
+        }
+      ],
+      "items": false,
+      "minItems": 2
+    },
+    "rosterEntry": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "$ref": "#/$defs/principal"
+        },
+        "key": {
+          "$ref": "#/$defs/publicKey"
+        }
+      },
+      "required": [
+        "account",
+        "key"
+      ],
+      "additionalProperties": false
+    },
+    "genesis": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "channel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 250
+        },
+        "roster": {
+          "$ref": "#/$defs/roster"
+        },
+        "signature": {
+          "$ref": "#/$defs/signature"
+        }
+      },
+      "required": [
+        "version",
+        "epoch",
+        "channel",
+        "branch",
+        "roster",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "offer": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "offer"
+        },
+        "to": {
+          "$ref": "#/$defs/principal"
+        },
+        "category": {
+          "$ref": "#/$defs/category"
+        },
+        "title": {
+          "$ref": "#/$defs/title"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        },
+        "ttlHours": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 336
+        }
+      },
+      "required": [
+        "kind",
+        "to",
+        "category",
+        "title",
+        "body",
+        "ttlHours"
+      ],
+      "additionalProperties": false
+    },
+    "ask": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "ask"
+        },
+        "context": {
+          "$ref": "#/$defs/digest"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/item"
+          },
+          "minItems": 1,
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "kind",
+        "context",
+        "items"
+      ],
+      "additionalProperties": false
+    },
+    "supply": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "supply"
+        },
+        "context": {
+          "$ref": "#/$defs/digest"
+        },
+        "ask": {
+          "$ref": "#/$defs/id"
+        },
+        "answers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/answer"
+          },
+          "maxItems": 5
+        },
+        "note": {
+          "$ref": "#/$defs/body"
+        },
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/resolution"
+          },
+          "maxItems": 5
+        }
+      },
+      "required": [
+        "kind",
+        "context",
+        "answers"
+      ],
+      "additionalProperties": false,
+      "$comment": "Answer, resolution and note bytes together at most 4096 (S3). Round binding and item order are transition rules (S13)."
+    },
+    "confirm": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "confirm"
+        },
+        "context": {
+          "$ref": "#/$defs/digest"
+        },
+        "understanding": {
+          "$ref": "#/$defs/understanding"
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/gap"
+          },
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "kind",
+        "context",
+        "understanding",
+        "gaps"
+      ],
+      "additionalProperties": false
+    },
+    "accept": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "accept"
+        },
+        "context": {
+          "$ref": "#/$defs/digest"
+        },
+        "confirmation": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "kind",
+        "context",
+        "confirmation"
+      ],
+      "additionalProperties": false
+    },
+    "decline": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "decline"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "cancel": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "cancel"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "reply": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "reply"
+        },
+        "body": {
+          "$ref": "#/$defs/body"
+        }
+      },
+      "required": [
+        "kind",
+        "body"
+      ],
+      "additionalProperties": false
+    },
+    "complete": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "complete"
+        },
+        "reply": {
+          "$ref": "#/$defs/id"
+        },
+        "outcome": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "reply",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "payload": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/offer"
+        },
+        {
+          "$ref": "#/$defs/ask"
+        },
+        {
+          "$ref": "#/$defs/supply"
+        },
+        {
+          "$ref": "#/$defs/confirm"
+        },
+        {
+          "$ref": "#/$defs/accept"
+        },
+        {
+          "$ref": "#/$defs/decline"
+        },
+        {
+          "$ref": "#/$defs/cancel"
+        },
+        {
+          "$ref": "#/$defs/reply"
+        },
+        {
+          "$ref": "#/$defs/complete"
+        }
+      ]
+    },
+    "intent": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "actor": {
+          "$ref": "#/$defs/principal"
+        },
+        "event": {
+          "$ref": "#/$defs/id"
+        },
+        "request": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8639998704000000
+        },
+        "payload": {
+          "$ref": "#/$defs/payload"
+        }
+      },
+      "required": [
+        "version",
+        "epoch",
+        "actor",
+        "event",
+        "request",
+        "revision",
+        "timestamp",
+        "payload"
+      ],
+      "additionalProperties": false
+    },
+    "event": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": 2
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "actor": {
+          "$ref": "#/$defs/principal"
+        },
+        "event": {
+          "$ref": "#/$defs/id"
+        },
+        "request": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8639998704000000
+        },
+        "payload": {
+          "$ref": "#/$defs/payload"
+        },
+        "previous": {
+          "$ref": "#/$defs/digest"
+        },
+        "signature": {
+          "$ref": "#/$defs/signature"
+        }
+      },
+      "required": [
+        "version",
+        "epoch",
+        "actor",
+        "event",
+        "request",
+        "revision",
+        "timestamp",
+        "payload",
+        "previous",
+        "signature"
+      ],
+      "additionalProperties": false
+    },
+    "ledger": {
+      "type": "object",
+      "properties": {
+        "genesis": {
+          "$ref": "#/$defs/genesis"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/event"
+          },
+          "maxItems": 128
+        }
+      },
+      "required": [
+        "genesis",
+        "events"
+      ],
+      "additionalProperties": false
+    }
+  }
+}
