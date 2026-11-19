@@ -2,12 +2,15 @@
 // receipt verification, recovery and local brief release. Transport-agnostic.
 import * as z from 'zod';
 import { access, accountSchema, AgentshakeError, append, assertKey, bodySchema, canonical, conflict, DAY, decode,
-  genesis, idSchema, integrity, intentSchema, invalid, parsed, publicKeySchema, receiptMatches,
-  stateAt, temporary, type Intent, type Payload, type Replay, type Request } from './domain.js';
-import { approvalDigest, type Destination, type LocalState, Profile, releaseBrief, removeBrief } from './local.js';
+  gapsOf, genesis, idSchema, integrity, intentSchema, invalid, PROTOCOL, parsed, publicKeySchema, receiptMatches,
+  stateAt, temporary, V1_PROFILE_NEXT, type Intent, type Payload, type Replay, type Request } from './domain.js';
+import { approvalDigest, type Brief, type Destination, inspectBrief, type LocalState, Profile, releaseBrief,
+  removeBrief } from './local.js';
 import { endpointSchema, openTransport, type Endpoint, type Snapshot, type Transport } from './transport/index.js';
 
 const pairingSchema = z.strictObject({
+  /** Protocol of the paired mailbox. Pairings without it were made by Agentshake 0.1 (protocol 1). */
+  protocol: z.literal(PROTOCOL),
   endpoint: endpointSchema, account: accountSchema, peer: accountSchema, key: publicKeySchema,
   mode: z.enum(['init', 'join']), peerLabel: z.string().max(80).optional(),
   /** Transport ref identity seen at pairing (GitHub: branch ref node ID), pinned when present. */
@@ -28,6 +31,8 @@ const sameDestination = (a: Destination | undefined, b: Destination) => a !== un
 export type Operation = z.infer<typeof operationSchema>;
 export type Context = { state: Replay; snapshot: Snapshot; pairing: Pairing };
 export type Plan = { material: Record<string, unknown>; operation: Operation };
+export type BriefPlan = { localBrief: { protocol: number; channel: string; request: string; revision: number;
+  context: { revision: number; digest: string }; open: string | null; brief: string; destination: Destination } };
 /** Writes per operation: the first attempt plus at most two retries after unrelated conflicts. */
 const MAX_WRITES = 3;
 
@@ -50,6 +55,14 @@ function assertPairing(pairing: Pairing, key: string, snapshot: Snapshot, state:
   }
 }
 
+/** Fails before any lock, transport contact or profile write when the profile belongs to protocol 1. */
+export function assertProfileProtocol(profile: Profile) {
+  const value = profile.get('pairing');
+  if (value !== undefined && (value === null || typeof value !== 'object' || (value as { protocol?: unknown }).protocol !== PROTOCOL)) {
+    invalid('This profile is paired on an Agentshake protocol 1 mailbox (v0.1). Agentshake 0.2 speaks protocol 2 only.', V1_PROFILE_NEXT);
+  }
+}
+
 export class Mailbox {
   constructor(readonly profile: Profile, private adapter?: Transport, readonly clock: () => number = Date.now) {}
 
@@ -58,7 +71,8 @@ export class Mailbox {
     return action().finally(release);
   }
 
-  pair(endpoint: Endpoint, peer: string, peerKey: string, mode: 'init' | 'join', peerLabel?: string) {
+  async pair(endpoint: Endpoint, peer: string, peerKey: string, mode: 'init' | 'join', peerLabel?: string) {
+    assertProfileProtocol(this.profile);
     return this.locked(async () => {
       const key = this.profile.key();
       assertKey(peerKey);
@@ -70,10 +84,11 @@ export class Mailbox {
       if (!snapshot.raw && mode === 'join') {
         conflict('The mailbox has not been initialized yet.', 'Ask the owner to run `agentshake channel init` first.');
       }
-      const value: Pairing = { endpoint, account: snapshot.account, peer, key: peerKey, mode,
+      const value: Pairing = { protocol: PROTOCOL, endpoint, account: snapshot.account, peer, key: peerKey, mode,
         ...(peerLabel ? { peerLabel } : {}), ...(snapshot.opaque?.refId ? { ref: snapshot.opaque.refId } : {}) };
       const provisional = this.profile.get('genesis');
       if (mode === 'init' && provisional === undefined && snapshot.raw) {
+        decode(snapshot.raw);
         conflict('This mailbox is already initialized.', 'Use `agentshake channel join` with the owner\'s public key.');
       }
       if (mode === 'join' && snapshot.raw) assertPairing(value, key.publicKey, snapshot, decode(snapshot.raw));
@@ -105,6 +120,7 @@ export class Mailbox {
   }
 
   pairing(): Pairing {
+    assertProfileProtocol(this.profile);
     const value = this.profile.get('pairing');
     if (!value) return invalid('This profile is not paired.', 'Run `agentshake channel init` (owner) or `channel join` (peer).');
     return parsed(pairingSchema, value, 'pairing', 'integrity');
@@ -126,20 +142,33 @@ export class Mailbox {
     return { state, snapshot, pairing };
   }
 
-  /** Reads and removes local briefs for requests that are canceled, declined or expired. */
+  /** Reads and removes local briefs that no longer apply (see prune). */
   async sync(): Promise<Context & { pruned: string[] }> {
     const context = await this.read();
+    return { ...context, pruned: this.prune(context) };
+  }
+
+  /**
+   * Removes local briefs for requests that are canceled, declined or expired, and negotiation
+   * briefs that are stale: written for an older context, an answered question round, or a
+   * request that is no longer pending. A stale negotiation brief is never refreshed
+   * automatically; the operator writes a new one.
+   */
+  private prune(context: Context): string[] {
     const pruned: string[] = [];
-    if (this.profile.get('exchange') !== undefined) {
-      const { inbox } = this.profile.exchange();
-      for (const request of context.state.requests.values()) {
-        const status = stateAt(request, this.clock());
-        if ((status === 'canceled' || status === 'declined' || status === 'expired') && removeBrief(inbox, request.id)) {
-          pruned.push(request.id);
-        }
+    if (this.profile.get('exchange') === undefined) return pruned;
+    const { inbox } = this.profile.exchange();
+    for (const request of context.state.requests.values()) {
+      const status = stateAt(request, this.clock());
+      let stale = status === 'canceled' || status === 'declined' || status === 'expired';
+      if (!stale) {
+        const brief = inspectBrief(inbox, request.id);
+        stale = brief !== undefined && brief.stage === 'negotiating' && (status !== 'pending' ||
+          brief.context.digest !== request.context.digest || brief.open?.ask !== request.open);
       }
+      if (stale && removeBrief(inbox, request.id)) pruned.push(request.id);
     }
-    return { ...context, pruned };
+    return pruned;
   }
 
   /**
@@ -149,18 +178,20 @@ export class Mailbox {
   prepare(context: Context, request: string, event: string, payload: Payload, brief?: string): Plan {
     parsed(idSchema, request, 'request ID');
     parsed(idSchema, event, 'operation ID');
-    const expected = context.state.requests.get(request)?.revision ?? 0;
+    const record = context.state.requests.get(request);
+    const expected = record?.revision ?? 0;
     const destination = brief !== undefined ? this.profile.destination() : undefined;
-    const material = { channel: context.snapshot.channel, epoch: context.state.ledger.genesis.epoch,
+    const material = { protocol: PROTOCOL, channel: context.snapshot.channel, epoch: context.state.ledger.genesis.epoch,
       actor: context.pairing.account, request, revision: expected, payload,
-      ...(brief !== undefined ? { brief, destination } : {}) };
-    const intent: Intent = { version: 1, epoch: material.epoch, actor: material.actor,
+      ...(brief !== undefined ? { brief, destination, context: record?.context, open: record?.open ?? null } : {}) };
+    const intent: Intent = { version: PROTOCOL, epoch: material.epoch, actor: material.actor,
       event, request, revision: expected, timestamp: this.clock(), payload };
     return { material, operation: { intent, approval: approvalDigest(material),
       ...(brief !== undefined ? { brief, destination } : {}) } };
   }
 
-  execute(operation: Operation) {
+  async execute(operation: Operation): Promise<Settled> {
+    assertProfileProtocol(this.profile);
     return this.locked(async () => {
       parsed(operationSchema, operation, 'operation');
       if (operation.brief !== undefined && !sameDestination(operation.destination, this.profile.destination())) {
@@ -176,8 +207,9 @@ export class Mailbox {
     });
   }
 
-  recover(id: string) {
+  async recover(id: string): Promise<Settled> {
     parsed(idSchema, id, 'operation ID');
+    assertProfileProtocol(this.profile);
     return this.locked(() => this.settle(id));
   }
 
@@ -201,6 +233,8 @@ export class Mailbox {
         if (brief !== undefined && (local === 'pending' || local === 'held-destination-changed')) {
           local = this.releaseApproved(id, request, context.pairing.account, brief, destination!, receipt.revision + 1, status);
         }
+        // A context change makes negotiation briefs stale; remove them now rather than on the next read.
+        try { this.prune(context); } catch { /* best effort: the next read prunes again */ }
         return { ...summary, localBrief: local, briefReleased: local === 'released' };
       }
       if (saved.done) integrity('A recorded operation is missing from the mailbox history.');
@@ -236,9 +270,24 @@ export class Mailbox {
     return temporary('The mailbox kept changing during the write.', `Run \`agentshake recover ${id}\`.`);
   }
 
-  /** Releases or replaces the local brief for an accepted or finished request (operator-authored). */
-  updateBrief(id: string, body: string, plan: Plan) {
+  /**
+   * Releases or replaces the operator-authored local brief: a negotiation brief while the
+   * request is pending (it never authorizes work), or a work/result brief once accepted or finished.
+   */
+  /** Approval material for a local brief: request revision, context, open round, text and destination. */
+  prepareBrief(context: Context, request: string, brief: string): BriefPlan {
+    parsed(idSchema, request, 'request ID');
+    const record = context.state.requests.get(request);
+    if (!record) return conflict('Unknown request.', 'Run `agentshake inbox --all` or `agentshake outbox --all`.');
+    return { localBrief: { protocol: PROTOCOL, channel: context.snapshot.channel, request, revision: record.revision,
+      context: record.context, open: record.open ?? null, brief: parsed(bodySchema, brief, 'brief'), destination: this.profile.destination() } };
+  }
+
+  async updateBrief(id: string, body: string, approved: BriefPlan) {
+    assertProfileProtocol(this.profile);
+    const plan = { material: approved.localBrief };
     return this.locked(async () => {
+      if (plan.material.brief !== body) invalid('The brief text differs from the reviewed one.');
       if (!sameDestination(plan.material.destination as Destination | undefined, this.profile.destination())) {
         conflict('The agent exchange was reconfigured after this brief was reviewed.', 'Run the command again and review the new destination.');
       }
@@ -252,11 +301,10 @@ export class Mailbox {
       if (status === 'expired' || status === 'canceled' || status === 'declined') {
         conflict(`The request is ${status} and closed for local work.`);
       }
-      if (status === 'pending') {
-        conflict('The request is still pending.', request.recipient === context.pairing.account
-          ? `Accept it first: \`agentshake accept ${id}\`.` : 'Wait for the peer to accept it.');
+      if (canonical(plan.material.context) !== canonical(request.context) || plan.material.open !== (request.open ?? null)) {
+        return conflict('The context changed since the preview.', `Run \`agentshake show ${id}\` and review again.`);
       }
-      const expires = status === 'accepted' ? request.expires : this.clock() + 7 * DAY;
+      const expires = status === 'accepted' || status === 'pending' ? request.expires : this.clock() + 7 * DAY;
       releaseBrief(this.profile.exchange().inbox, briefFor(request, context.pairing.account, body, request.revision, expires));
       // A fresh local approval supersedes any brief release held for a previous destination.
       for (const entry of this.profile.unfinished()) {
@@ -265,7 +313,7 @@ export class Mailbox {
           this.profile.setLocal(entry.id, 'superseded');
         }
       }
-      return { request: id, state: status, briefReleased: true, inbox: this.profile.exchange().inbox };
+      return { request: id, state: status, stage: stageOf(status), briefReleased: true, inbox: this.profile.exchange().inbox };
     });
   }
 
@@ -275,7 +323,12 @@ export class Mailbox {
     let local: LocalState;
     if (status !== 'accepted') local = 'skipped-closed';
     else if (!sameDestination(destination, this.profile.destination())) local = 'held-destination-changed';
-    else local = releaseBrief(destination.inbox, briefFor(request, account, brief, version), true) ? 'released' : 'already-present';
+    else {
+      // A negotiation brief is replaced by the work brief; an equal or newer work brief is kept.
+      const existing = inspectBrief(destination.inbox, request.id);
+      if (existing && existing.stage !== 'negotiating' && existing.version >= version) local = 'already-present';
+      else { releaseBrief(destination.inbox, briefFor(request, account, brief, version)); local = 'released'; }
+    }
     this.profile.setLocal(id, local);
     return local;
   }
@@ -288,12 +341,21 @@ export class Mailbox {
 
   /** Serializes exchange reconfiguration with mutations; invalidates pending brief approvals. */
   configure(paths: { inbox: string; outbox: string }, group?: string) {
+    assertProfileProtocol(this.profile);
     const release = this.profile.lock();
     try { return this.profile.configure(paths, group); } finally { release(); }
   }
 }
 
-function briefFor(request: Request, account: string, body: string, version: number, expires = request.expires) {
-  return { request: request.id, role: request.recipient === account ? 'recipient' as const : 'sender' as const,
-    category: request.category, body, expires, version };
+const stageOf = (status: string): Brief['stage'] => status === 'pending' ? 'negotiating' : status === 'accepted' ? 'accepted' : 'finished';
+
+/** The brief record: operator text plus binding metadata. Remote prose is never copied in. */
+export function briefFor(request: Request, account: string, body: string, version: number, expires = request.expires): Brief {
+  const role = request.recipient === account ? 'recipient' as const : 'sender' as const;
+  const stage = stageOf(request.state);
+  const ask = request.open ? request.negotiation.find(entry => entry.kind === 'ask' && entry.id === request.open) : undefined;
+  return { request: request.id, role, category: request.category, stage, authorizesWork: stage !== 'negotiating', body, expires, version,
+    context: { revision: request.context.revision, digest: request.context.digest },
+    ...(ask && ask.kind === 'ask' ? { open: { ask: ask.id, items: ask.items.length } } : {}),
+    gaps: gapsOf(request) };
 }

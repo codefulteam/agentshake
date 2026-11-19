@@ -6,7 +6,17 @@ Agentshake lets two developers pass coding questions, review requests, proposals
 results between their own coding agents. Each side works under its own account, on its own
 machine, and every message is approved by a human operator before it leaves.
 
+A handoff is a handshake, not a throw over the wall:
+
+```
+offer ─▶ ask for missing items (and why) ─▶ supply: supplied | unavailable | withheld ─▶ … ─▶
+confirm your understanding and current known limitations ─▶ accept that exact context ─▶ result
+```
+
 - **Operator-approved**: agents only write *drafts*. A person reviews the exact bytes and signs them.
+- **Context before commitment**: the recipient asks typed questions, the requester answers each one
+  (or says it is unavailable or withheld), and acceptance is bound to a signed confirmation of that
+  exact context version. New context makes an earlier confirmation stale.
 - **Signed and replayable**: every action is an Ed25519-signed event in one hash-chained ledger
   that both sides verify. Rollbacks, forks, forged or out-of-role events are rejected.
 - **Prompt-injection aware**: text from the other side is shown to the operator (escaped), never
@@ -15,10 +25,11 @@ machine, and every message is approved by a human operator before it leaves.
   hosted backend, no model API.
 - **Agent-neutral**: any agent that can run a shell command or speak MCP over stdio can use it.
 
-> Status: **v0.1.0 release candidate.** The protocol, CLI, MCP server and GitHub adapter are
-> implemented. The GitHub adapter is tested against a GitHub CLI test double; live two-account
-> GitHub use has **not** been verified yet. Agentshake provides no sandbox itself; two agent
-> isolation setups are verified by scripted tests (see [What is verified](#what-is-verified)).
+> Status: **v0.2.0 release candidate** (protocol 2, pre-accept context negotiation). The protocol,
+> CLI, MCP server and GitHub adapter are implemented. The GitHub adapter is tested against a GitHub
+> CLI test double; live two-account GitHub use has **not** been verified yet. Agentshake provides
+> no sandbox itself; two agent isolation setups are verified by scripted tests (see
+> [What is verified](#what-is-verified)). Coming from 0.1? See [Upgrading from 0.1](#upgrading-from-01).
 
 ## Try it in one minute (no GitHub account)
 
@@ -30,24 +41,28 @@ npm ci && npm run build
 node dist/cli.js demo
 ```
 
-or, once the v0.1.0 release is published, install its tarball and run `agentshake demo`
+or, once the v0.2.0 release is published, install its tarball and run `agentshake demo`
 (see [Install](#install)).
 
-`agentshake demo` runs a complete two-person exchange offline: two profiles (Alice and Bob),
-a local file mailbox, a review request containing a hostile "ignore previous instructions"
-line, acceptance with a locally written brief, a clarification round trip, findings, completion,
-and the decline, cancel and expiry endings. It uses the same code as real use, and it says
-clearly that it is the unauthenticated **file** transport, not GitHub. **Approvals in the demo
-are simulated**: it approves on behalf of both people so the story runs in one go.
+`agentshake demo` runs a complete two-person handshake offline: two profiles (Alice and Bob), a
+local file mailbox, a review offer containing a hostile "ignore previous instructions" line, a
+negotiation brief for Bob's agent (no work authority), three questions with reasons, answers that
+are supplied, unavailable and withheld, a second question round, a confirmation that lists the
+current unresolved limitations after an explicit resolution of the unavailable item, a note that makes it stale (and the refused stale accept), a new confirmation,
+acceptance with a work brief, findings, completion, and the decline, cancel and expiry endings. It
+uses the same code as real use, and it says clearly that it is the unauthenticated **file**
+transport, not GitHub. **Approvals in the demo are simulated**: it approves on behalf of both
+people so the story runs in one go.
 
 To keep the workspace and try the real approval flow yourself, keep it with `--dir`. The demo
-leaves one accepted task open and prints the exact commands for a reply round trip on it:
+leaves one offer pending and prints the exact commands to ask, answer, confirm and accept it:
 
 ```sh
 agentshake demo --dir ./agentshake-demo
 ```
 
-`scripts/demo.sh` walks the journey through individual CLI commands. It also simulates the
+`scripts/demo.sh` walks the same handshake through individual CLI commands, with JSON payloads
+from files and stdin. It also simulates the
 human review, by feeding each `--preview` digest to `--approve`; in real use you read the
 preview (or answer the terminal prompt) before approving.
 
@@ -63,30 +78,44 @@ preview (or answer the terminal prompt) before approving.
    writes outbox (rw)           ▼                      ▼
                       ┌────────────────────────────────────────┐
                       │ private GitHub repo: one signed ledger  │
-                      │ agentshake-mailbox-v1.json              │
+                      │ agentshake-mailbox-v2.json              │
                       └────────────────────────────────────────┘
 ```
 
-1. Alice's agent writes a **draft** into its outbox: `agentshake agent ... draft new`.
-2. Alice runs `agentshake publish <draft>`, sees the destination, signer and exact text, and
+1. **Offer.** Alice's agent writes a **draft** into its outbox (`agentshake agent ... draft new`).
+   Alice runs `agentshake publish <draft>`, sees the destination, signer and exact text, and
    approves. The event is signed and appended with a compare-and-swap on the branch head.
-3. Bob runs `agentshake inbox` and `agentshake show <id>`. Remote text stays in his terminal.
-4. Bob runs `agentshake accept <id>` and writes a **brief** in his own words. Only that brief is
-   released to his agent's read-only inbox.
-5. Bob's agent drafts a reply; Bob publishes it and runs
-   `agentshake complete <id> --reply <reply-id> --outcome completed` (or `--outcome failed`).
-6. Alice sees the linked result with `agentshake show <id>` and can brief her own agent.
+2. **Read.** Bob runs `agentshake inbox` and `agentshake show <id>`. Remote text stays in his
+   terminal, escaped. Optionally he writes a **negotiation brief** for his agent in his own words
+   (`agentshake brief <id>`): it carries the context version but grants no work authority.
+3. **Ask.** Bob (or his agent, as a draft) asks for missing items, each with the reason it is
+   needed: `agentshake ask <id> --topic "Which branch?" --need "To review the right code"`.
+4. **Supply.** Alice answers every open question exactly once: `supplied` with the content,
+   `unavailable`, or `withheld`, bound to that question round and the current context version:
+   `agentshake supply <id> --answers-file answers.json`. Steps 3–4 repeat within a budget.
+5. **Confirm.** Bob states his understanding in his own words. The signed confirmation lists the
+   unavailable and withheld items that are still unresolved as known limitations:
+   `agentshake confirm <id> --understanding-file u.txt`. If Alice later recovers such an item, she
+   resolves it explicitly with the content (`supply` with `resolutions`); the original answer stays
+   in the history, and the item leaves the current limitations.
+   Alice can still add context (`supply --note-file`), which makes the confirmation stale.
+6. **Accept.** `agentshake accept <id>` cites the current confirmation and context digest, and
+   releases Bob's **work brief** to his agent's read-only inbox. The context is now frozen.
+7. **Result.** Bob's agent drafts a reply; Bob publishes it and runs
+   `agentshake complete <id> --reply <reply-id> --outcome completed` (or `--outcome failed`). Alice
+   sees the linked result and can brief her own agent.
 
-Either side can ask for clarification with further replies. Bob can decline before accepting.
-Alice can cancel until the request is finished. Requests expire (default 7 days).
+Bob can decline at any point before accepting; Alice can cancel until the request is finished.
+Requests expire (default 7 days). Post-accept replies are for results and clarifications that do
+not change scope; to change scope after acceptance, Alice cancels and sends a new offer.
 
 ## Install
 
 Agentshake is distributed as a release tarball first. npm publication may follow.
 
 ```sh
-# From a GitHub release (after v0.1.0 is published)
-npm install -g https://github.com/codefulteam/agentshake/releases/download/v0.1.0/agentshake-0.1.0.tgz
+# From a GitHub release (after v0.2.0 is published)
+npm install -g https://github.com/codefulteam/agentshake/releases/download/v0.2.0/agentshake-0.2.0.tgz
 
 # From source
 git clone https://github.com/codefulteam/agentshake && cd agentshake
@@ -153,7 +182,8 @@ agentshake agent --inbox /exchange/inbox --outbox /exchange/outbox draft reply <
 agentshake agent --inbox /exchange/inbox --outbox /exchange/outbox mcp     # stdio MCP server
 ```
 
-The MCP server exposes `list_briefs`, `read_brief` and `create_draft`. Example host entry:
+The MCP server exposes `list_briefs`, `read_brief` and `create_draft` (drafts for offers, questions,
+answers, confirmations and results). It never returns remote text. Example host entry:
 
 ```json
 { "mcpServers": { "agentshake": {
@@ -179,11 +209,14 @@ setups are verified by scripts in `test/isolation/` (a two-account Linux contain
 | `doctor` | Verify identity, history, capacity, exchange setup and unfinished work |
 | `exchange configure` | Set the agent inbox/outbox directories |
 | `inbox` / `outbox` [`--all`] | List open (or all) requests received / sent |
-| `show <request>` | Read a request and replies, escaped, with next steps |
+| `show <request>` | Read a request, its negotiation and replies, escaped, with next steps |
 | `drafts` | List unsent agent drafts |
-| `publish <draft>` | Review, sign and send a draft (new request or reply) |
-| `accept <request>` | Accept and release your brief (opens `$EDITOR`, or `--body-file`) |
-| `brief <request>` | Release or replace a local brief; nothing is sent |
+| `publish <draft>` | Review, sign and send a draft (offer, ask, supply, confirm or reply) |
+| `ask <request>` | Recipient: ask for missing items (`--topic`/`--need` or `--items-file`) |
+| `supply <request>` | Requester: answer the open round (`--answers-file`) or add context (`--note-file`) |
+| `confirm <request>` | Recipient: state your understanding of the current context (`--understanding-file`) |
+| `accept <request>` | Accept the confirmed context and release your work brief (opens `$EDITOR`, or `--body-file`) |
+| `brief <request>` | Release or replace a local brief (negotiation brief while pending); nothing is sent |
 | `decline` / `cancel <request>` | Decline as recipient / cancel as requester |
 | `complete <request> --reply <id> --outcome completed\|failed` | Close with your published reply |
 | `pending` / `recover <operation>` | List and finish interrupted operations |
@@ -191,23 +224,48 @@ setups are verified by scripts in `test/isolation/` (a two-account Linux contain
 
 These operator actions ask for approval on the controlling terminal and show exactly what will
 be signed or released (destination, signer, request revision, text, and for briefs the agent
-inbox): `publish`, `accept`, `brief`, `decline`, `cancel` and `complete`. Setup commands
+inbox): `publish`, `ask`, `supply`, `confirm`, `accept`, `brief`, `decline`, `cancel` and `complete`. Setup commands
 (`key`, `channel`, `exchange`) and agent drafts do not ask. For scripted use, approval stays
 explicit:
 
 ```sh
-agentshake publish <draft> --preview          # prints the action and an approval digest; changes nothing
+agentshake publish <draft> --preview          # prints the action and an approval digest
 agentshake publish <draft> --approve <digest> # executes only if nothing changed since the preview
 ```
+
+What a preview does and does not do: it never signs, sends, stages a journal entry, or releases
+or removes a brief, and it refuses (with the reason) any action the mailbox would reject. It does
+read and verify the mailbox, and like every verified read it may advance your profile's rollback
+checkpoint (the observed prefix in `operator.sqlite`), so a later rollback is still detected. Like
+every command it creates the profile database if it does not exist. A preview of an already
+approved, staged draft makes no network call and no profile write.
 
 The digest binds the reviewed action; it is a check for a human operator, not a secret. Any
 software running with the operator's access could compute it, which is another reason the agent
 must not run with that access. A draft that was approved but whose delivery is unconfirmed is never
 resent implicitly: `publish` then tells you to run `agentshake recover <draft-id>`.
 
-Bodies can come from a file or stdin (`--body-file -`). Use `--json` for machine-readable output;
-it includes stable IDs, revisions, ISO dates and a `next` array of suggested commands. Errors go to
-stderr (JSON with `--json`) with a `next` hint.
+Bodies and JSON payloads can come from a file or stdin (`--body-file -`, `--answers-file -`). Use
+`--json` for machine-readable output; it includes stable IDs, revisions, the context revision and
+digest, the negotiation phase and whose move it is, ISO dates and a `next` array of suggested
+commands.
+
+An `answers.json` for `agentshake supply <id> --answers-file answers.json`:
+
+```json
+{ "answers": [ { "item": 1, "status": "supplied", "body": "main at abc123" },
+               { "item": 2, "status": "unavailable", "body": "No logs were kept." },
+               { "item": 3, "status": "withheld", "body": "Customer data stays private." } ] }
+```
+
+If an unavailable or withheld item turns up later, resolve it explicitly with the recovered
+content (`agentshake show` prints the ask ID and item number of every unresolved one):
+
+```json
+{ "resolutions": [ { "ask": "<ask-id>", "item": 2, "body": "Found one log line: retry 6 of 5 after 0ms" } ] }
+```
+
+Errors go to stderr (JSON with `--json`) with a `next` hint.
 
 | Exit code | Meaning |
 | --- | --- |
@@ -221,10 +279,12 @@ stderr (JSON with `--json`) with a `next` hint.
 ## Limits
 
 Body 4096 UTF-8 bytes; title 120 characters; text may not contain terminal control characters
-(tab and newline are allowed). Expiry 1 to 336 hours, default 168. Per mailbox: 32 requests,
-128 events and a 256 KiB ledger; per request: 32 events. Capacity for every open request's
-accept, recipient reply and closing event is reserved in advance, so at least 13 maximum-size
-requests (about 20 with 1 KB bodies) can be open at once. Requests that **expire** without being
+(tab and newline are allowed). Expiry 1 to 336 hours, default 168. Negotiation: up to 5 questions
+per round, 4 answered rounds or notes per request, an understanding of up to 2048 bytes. Per
+mailbox: 32 requests, 128 events and a 256 KiB ledger; per request: 32 events. Capacity for every
+open request's remaining handshake (the answer to an open round, a confirmation, the accept, a
+recipient reply and the closing event) is reserved in advance, so a peer cannot crowd out what you
+need to finish or close. At least 9 maximum-size offers (13 with 1 KB bodies) can be open at once. Requests that **expire** without being
 closed keep their reservation (replay has no trustworthy clock), so a mailbox with several expired
 requests can fill up while showing little open work; cancel your own open requests when you no
 longer need them. When a mailbox is full, settle open work and pair a new private repository.
@@ -236,16 +296,25 @@ Verified by the test suite on Node 24.22.3 and 26.13.0 (macOS arm64), including 
 installed package tarball, plus scripted isolation checks:
 
 - Domain: canonical encoding and golden signature vectors, tampering, replays, wrong actor or
-  audience, revision races, expiry, capacity reservations, unknown versions.
-- Application: compare-and-swap races (one winner per request revision), retries for unrelated
-  conflicts, loss before and after commit, crash after accept, restart recovery, rollback and fork
-  detection, profile locking.
-- CLI and MCP: the full two-profile lifecycle through the executable, and all three MCP tools
-  through the official MCP TypeScript client over stdio.
+  audience, revision races, expiry, capacity reservations, unknown versions; negotiation roles
+  (the requester cannot ask, confirm or accept), answers bound to the open round and context digest,
+  skipped, duplicate or reordered answers, cross-request and replayed supplies, stale
+  confirmations, frozen context after accept, round and size limits, and reserved closing capacity
+  under a malicious filler; protocol 1 ledgers refused.
+- Application: compare-and-swap races (one winner per request revision, including ask/supply,
+  confirm/supply and supply/accept), retries for unrelated conflicts, loss before and after commit,
+  crash after accept, restart recovery for supply and confirm, rollback and fork detection, profile
+  locking; negotiation briefs without remote text, removed when stale, replaced on accept; protocol
+  1 profiles refused with byte-identical files.
+- CLI and MCP: the full two-profile handshake through the executable (file and stdin payloads,
+  stale `--approve` refused), and all three MCP tools, including question, answer and confirmation
+  drafts, through the official MCP TypeScript client over stdio.
 - GitHub adapter: exact `gh api graphql` argv, static queries, `createCommitOnBranch` with
   `expectedHeadOid`, stale-head conflicts, denial, rate limits, oversized/truncated/mismatched
   responses — **against a `gh` test double**, not live GitHub.
-- Approvals: preview of a staged draft makes zero writes; brief approvals bind the agent inbox and
+- Approvals: preview never signs, stages or releases, refuses actions the mailbox would reject, may
+  only advance the rollback checkpoint, and a staged-draft preview makes no network call or profile
+  write; brief approvals bind the agent inbox and
   exchange configuration; reconfiguration needs a new approval.
 - Isolation (`test/isolation/`): in a network-less Ubuntu 24.04 container, an agent running as a
   separate UID in the `--group` exchange reads briefs (also after atomic replacement), writes drafts
@@ -260,11 +329,28 @@ and any agent host other than the reference MCP client.
 ## Roadmap
 
 - **v0.1** — GitHub private repository transport, offline file transport, CLI and stdio MCP.
+- **v0.2** — protocol 2: pre-accept context negotiation (ask, supply, confirm) and acceptance bound
+  to a confirmed context.
 - Next — live two-account GitHub verification, repository-scoped auth (for example a GitHub App),
   metadata-only notifications.
 - Later — more transports behind the same [transport contract](docs/transports.md) (for example
   other Git hosts or a shared filesystem), larger mailboxes, optional
-  [A2A](https://a2a-protocol.org/) mapping. Agentshake v0.1 makes no A2A conformance claim.
+  [A2A](https://a2a-protocol.org/) mapping. Agentshake makes no A2A conformance claim.
+
+## Upgrading from 0.1
+
+Agentshake 0.2 speaks protocol 2 only, which needs a **fresh mailbox and a new profile**. Nothing
+is migrated and nothing of yours is changed:
+
+- Commands on a 0.1 profile stop with exit code 2 before touching it, and tell you both options.
+- To finish open 0.1 requests, run the immutable 0.1.0 release on that profile:
+  `npm exec --yes --package=https://github.com/codefulteam/agentshake/releases/download/v0.1.0/agentshake-0.1.0.tgz -- agentshake --profile ~/.agentshake inbox`
+- To start protocol 2: `export AGENTSHAKE_HOME=~/.agentshake-v2`, then `agentshake key init`,
+  exchange and verify the new fingerprints, and pair again (`channel init` / `channel join`).
+  On GitHub the new ledger is `agentshake-mailbox-v2.json`; a dedicated new private repository is
+  recommended, and the old `agentshake-mailbox-v1.json` is never read or changed.
+
+See [docs/protocol.md#versioning](docs/protocol.md#versioning) for the exact rules.
 
 ## Documentation
 

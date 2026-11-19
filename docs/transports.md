@@ -40,7 +40,7 @@ factory case there.
 
 ## GitHub (`--repo owner/repo`)
 
-The production transport for v0.1.
+The production transport.
 
 - **Auth**: delegated to the GitHub CLI. Agentshake runs `gh api graphql --hostname github.com
   --input -` with `execFile` (no shell), a curated environment (`HOME`, `PATH`, `GH_CONFIG_DIR`,
@@ -49,7 +49,8 @@ The production transport for v0.1.
   all data travels as GraphQL variables.
 - **Read**: query 1 returns `viewer { databaseId login }` and the repository `id`, `isPrivate` and
   default branch ref (`id`, `name`, `target.oid`). Query 2 reads the blob
-  `<headOid>:agentshake-mailbox-v1.json` from that exact commit and rejects binary, truncated or
+  `<headOid>:agentshake-mailbox-v2.json` from that exact commit (protocol 2; the protocol 1 path
+  `agentshake-mailbox-v1.json` is never read or written by this release) and rejects binary, truncated or
   oversized blobs. The blob text is checked against its Git object ID (SHA-1 or SHA-256), and the
   viewer must be the same in both queries.
 - **Identity**: `channel` is `github:` + the repository node ID, `branch` is the default branch
@@ -125,4 +126,4 @@ It is exported for embedding; it does not persist anything.
 4. Document authentication, channel identity, bounds, and exactly what you verified.
 
 Candidate future transports include other Git hosts with conditional ref updates and
-shared filesystems with atomic rename semantics. None are implemented in v0.1.
+shared filesystems with atomic rename semantics. None are implemented yet.

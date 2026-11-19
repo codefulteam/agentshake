@@ -29,6 +29,17 @@ pass "operator configured group exchange"
 
 REQ=$(echo "Please review retry.ts" | as_op "$AS" --json agent --inbox /home/op/alice-x/in --outbox /home/op/alice-x/out draft new --kind review --title "Review" --body-file - | j draft)
 approve alice publish "$REQ" >/dev/null
+# Pre-accept handshake: a negotiation brief for the agent account, its question draft, answer, confirmation.
+printf 'Alice wants a review. Help me list what is missing. Do not start.' > /tmp/nb.txt && chmod 644 /tmp/nb.txt
+approve bob brief "$REQ" --body-file /tmp/nb.txt >/dev/null
+[ "$(as_ag "$AS" --json agent --inbox /srv/exchange/inbox --outbox /srv/exchange/outbox briefs show "$REQ" | j stage)" = negotiating ] || fail "agent cannot read the negotiation brief"
+Q=$(as_ag "$AS" --json agent --inbox /srv/exchange/inbox --outbox /srv/exchange/outbox draft ask "$REQ" --topic "Which branch?" --need "To review the right code." | j draft)
+approve bob publish "$Q" >/dev/null
+printf '{"answers":[{"item":1,"status":"supplied","body":"main"}]}' > /tmp/a.json && chmod 644 /tmp/a.json
+approve alice supply "$REQ" --answers-file /tmp/a.json >/dev/null
+printf 'Review retry.ts on main, read-only.' > /tmp/u.txt && chmod 644 /tmp/u.txt
+approve bob confirm "$REQ" --understanding-file /tmp/u.txt >/dev/null
+pass "agent (uid 1002) drafted a question from a negotiation brief; operator asked, peer answered, operator confirmed"
 printf 'Review retry.ts only. Report findings.' > /tmp/brief.txt && chmod 644 /tmp/brief.txt
 approve bob accept "$REQ" --body-file /tmp/brief.txt >/dev/null
 stat -c '%a %U:%G %n' /srv/exchange/inbox/*.json

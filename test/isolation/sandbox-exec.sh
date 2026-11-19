@@ -33,9 +33,20 @@ op alice exchange configure --inbox "$W/alice-x/inbox" --outbox "$W/alice-x/outb
 op bob exchange configure --inbox "$W/bob-x/inbox" --outbox "$W/bob-x/outbox" >/dev/null
 REQ=$(echo "Please review" | "$AS" --json agent --inbox "$W/alice-x/inbox" --outbox "$W/alice-x/outbox" draft new --kind review --title Review --body-file - | j draft)
 approve alice publish "$REQ" >/dev/null
+AG=(agent --inbox "$W/bob-x/inbox" --outbox "$W/bob-x/outbox")
+# Pre-accept handshake: the sandboxed agent drafts a question from a negotiation brief.
+printf 'Help me list what is missing. Do not start.' > "$W/nb.txt"
+approve bob brief "$REQ" --body-file "$W/nb.txt" >/dev/null
+[ "$(sandboxed "$AS" --json "${AG[@]}" briefs show "$REQ" | j stage)" = negotiating ] || fail "sandboxed agent cannot read the negotiation brief"
+Q=$(sandboxed "$AS" --json "${AG[@]}" draft ask "$REQ" --topic "Which branch?" --need "To review the right code." | j draft)
+approve bob publish "$Q" >/dev/null
+printf '{"answers":[{"item":1,"status":"supplied","body":"main"}]}' > "$W/a.json"
+approve alice supply "$REQ" --answers-file "$W/a.json" >/dev/null
+printf 'Review on main, read-only.' > "$W/u.txt"
+approve bob confirm "$REQ" --understanding-file "$W/u.txt" >/dev/null
+pass "sandboxed agent drafted a question from a negotiation brief; handshake confirmed"
 printf 'Review only.' > "$W/brief.txt"
 approve bob accept "$REQ" --body-file "$W/brief.txt" >/dev/null
-AG=(agent --inbox "$W/bob-x/inbox" --outbox "$W/bob-x/outbox")
 
 [ "$(sandboxed "$AS" --json "${AG[@]}" briefs show "$REQ" | j body)" = "Review only." ] || fail "sandboxed agent cannot read brief"
 pass "sandboxed agent reads the brief"

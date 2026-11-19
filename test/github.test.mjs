@@ -10,7 +10,9 @@ import { test } from 'node:test';
 
 const bin = process.env.AGENTSHAKE_BIN || resolve('dist/cli.js');
 const fake = resolve('test/fixtures/fake-gh.mjs');
-const LEDGER = 'agentshake-mailbox-v1.json';
+const LEDGER = 'agentshake-mailbox-v2.json';
+const V1_LEDGER = 'agentshake-mailbox-v1.json';
+const V1_TEXT = '{"genesis":{"version":1}}';
 
 function world(t) {
   const root = mkdtempSync(join(tmpdir(), 'agentshake-gh-'));
@@ -27,7 +29,8 @@ function world(t) {
   const load = () => JSON.parse(readFileSync(statePath, 'utf8'));
   save({ users: { alice: 101, bob: 202, carol: 303 }, faults: [], log: [], repos: {
     'alice/mailbox': { id: 'R_mailbox1', private: true, branchId: 'BR_main1', branch: 'main', access: [101, 202], writers: [101, 202],
-      commits: [{ oid: 'a'.repeat(40), files: { 'README.md': 'private mailbox' } }] } } });
+      // A protocol 1 ledger from Agentshake 0.1 in the same repository must stay untouched.
+      commits: [{ oid: 'a'.repeat(40), files: { 'README.md': 'private mailbox', [V1_LEDGER]: V1_TEXT } }] } } });
   const configs = {};
   for (const [name, id] of [['alice', 101], ['bob', 202], ['carol', 303]]) {
     const dir = join(root, 'gh-' + name);
@@ -100,16 +103,23 @@ test('GitHub adapter: pairing, identity checks, full lifecycle, conflicts, fault
   run('bob', ['inbox'], { expected: 3 });
   s = load(); s.repos['alice/mailbox'].private = true; save(s);
 
-  // Lifecycle over the GitHub adapter.
+  // Lifecycle over the GitHub adapter, including the pre-accept handshake.
   const request = agent('alice', ['draft', 'new', '--kind', 'question', '--title', 'Flaky test?', '--body-file', '-'], { input: 'Why does retry.test fail?' }).draft;
   approve('alice', ['publish', request]);
   assert.equal(call('bob', ['inbox'])[0].id, request);
+  approve('bob', ['ask', request, '--topic', 'Which CI job?', '--need', 'To reproduce the failure.']);
+  approve('alice', ['supply', request, '--answers-file', '-'], { input: '{"answers":[{"item":1,"status":"unavailable","body":"Logs expired."}]}' });
+  approve('bob', ['confirm', request, '--understanding-file', '-'], { input: 'Investigate retry.test locally; no CI logs.' });
   writeFileSync(join(w.root, 'brief.txt'), 'Investigate retry.test only.');
   assert.equal(approve('bob', ['accept', request, '--body-file', join(w.root, 'brief.txt')]).briefReleased, true);
   const answer = agent('bob', ['draft', 'reply', request, '--body-file', '-'], { input: 'Timer mock leaks between tests.' }).draft;
   approve('bob', ['publish', answer]);
   approve('bob', ['complete', request, '--reply', answer, '--outcome', 'completed']);
   assert.equal(call('alice', ['show', request]).state, 'completed');
+  assert.equal(call('alice', ['show', request]).context.revision, 2);
+  const head = load().repos['alice/mailbox'].commits.at(-1).files;
+  assert.equal(head[V1_LEDGER], V1_TEXT, 'the protocol 1 ledger is never read or rewritten');
+  assert.ok(Object.values(load().commitsBy).every(c => c.paths.length === 1 && c.paths[0] === LEDGER), 'every commit touches only the v2 ledger');
 
   // Expected-head conflict: an unrelated commit lands between read and write; the same intent is retried.
   const second = agent('alice', ['draft', 'new', '--kind', 'review', '--title', 'Second', '--body-file', '-'], { input: 'Body' }).draft;
@@ -170,6 +180,12 @@ test('GitHub adapter: pairing, identity checks, full lifecycle, conflicts, fault
   run('alice', ['publish', staged, '--approve', stagedPreview.digest], { expected: 5 });
   run('alice', ['publish', staged, '--preview', '--approve', stagedPreview.digest], { expected: 2 });
   assert.equal(appends(), writesBefore, 'preview and plain publish of a staged draft made zero writes');
+  const calls = load().log.length;
+  const profileDb = join(w.root, 'profile-alice', 'operator.sqlite');
+  const dbBefore = readFileSync(profileDb);
+  call('alice', ['publish', staged, '--preview']);
+  assert.equal(load().log.length, calls, 'a staged preview makes no GitHub call at all');
+  assert.ok(readFileSync(profileDb).equals(dbBefore), 'and leaves the profile database byte-identical');
   assert.equal(call('alice', ['recover', staged]).remote, 'recorded');
   assert.equal(appends(), writesBefore + 1);
   assert.equal(call('alice', ['publish', staged]).alreadyPublished, true);

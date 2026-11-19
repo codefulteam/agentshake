@@ -12,10 +12,10 @@ operator profile or call `gh`. Publishing, accepting and completing are operator
 
 ## What has been tested
 
-| Integration | Status in v0.1 |
+| Integration | Status in v0.2 |
 | --- | --- |
 | Shell commands (`agentshake agent briefs …`, `draft …`) | Tested through the installed executable |
-| MCP stdio server with the official MCP TypeScript SDK client 2.4.0 | Tested: initialize, list tools, all three tools, error results |
+| MCP stdio server with the official MCP TypeScript SDK client 2.4.0 | Tested: initialize, list tools, all three tools (including ask, supply and confirm drafts), error results |
 | Isolation: agent as a separate UID (`--group`) in a Linux container; agent under `sandbox-exec` on macOS | Tested by `test/isolation/` scripts (see [Isolation](#isolation)) |
 | Any specific agent host (Codex, Claude, Grok, Kimi, DeepSeek-based agents, others) | **Not tested.** Expected to work wherever the host can run shell commands or launch a stdio MCP server, but unverified |
 
@@ -28,11 +28,38 @@ Point the agent at the two directories with flags or environment variables:
 
 ```sh
 export AGENTSHAKE_INBOX=/exchange/inbox AGENTSHAKE_OUTBOX=/exchange/outbox
-agentshake agent briefs list                         # request ID, role, kind, expiry
-agentshake agent briefs show <request-id>            # the operator's brief
-agentshake agent draft reply <request-id> --body-file findings.md
+agentshake agent briefs list                         # request ID, stage, role, kind, expiry
+agentshake agent briefs show <request-id>            # the operator's brief and its context binding
 agentshake agent draft new --kind review --title "Review retry behavior" --body-file - < request.md
+
+# Before acceptance, with a negotiation brief (stage "negotiating"):
+agentshake agent draft ask <request-id> --topic "Which branch?" --need "To review the right code"
+agentshake agent draft supply <request-id> --answers-file answers.json     # requester, open round
+agentshake agent draft confirm <request-id> --understanding-file understanding.md
+
+# After acceptance, with a work brief (stage "accepted"):
+agentshake agent draft reply <request-id> --body-file findings.md
 ```
+
+### Briefs and stages
+
+| Stage | Who releases it | What it means for the agent |
+| --- | --- | --- |
+| `negotiating` (`authorizesWork: false`) | operator, while the request is pending | **Not approved work.** Help the operator clarify: questions and an understanding (recipient), or answers (requester). |
+| `accepted` (`authorizesWork: true`) | operator, at accept or later | The full scope of approved work. Report results with `draft reply`. |
+| `finished` | operator, after completion | A local follow-up the operator wrote, for example acting on a result. |
+
+A brief carries `context { revision, digest }`, for the requester the open question round
+(`open { ask, items }`, for both roles; the recipient waits while it is open) and the current
+unresolved limitations by reference (`gaps`). It never contains the
+other side's text unless your operator typed it. `draft ask`, `draft supply` and `draft confirm`
+take their binding (context digest or round ID) from the brief by default, so a draft always says
+what it was written for. When the context changes, the operator side removes the stale negotiation
+brief and `publish` refuses drafts bound to the old context; ask your operator for a new brief.
+`unavailable` and `withheld` answers are gaps, never evidence: say what you could not check. As
+the requester, if you actually recover a listed gap, draft a supply with
+`resolutions: [{ ask, item, body }]` containing the recovered content; never claim a resolution
+without the content.
 
 Add `--json` for machine-readable output. Kinds are `question`, `review`,
 `proposal` and `task`. Bodies are at most 4096 bytes and may not contain terminal control
@@ -41,11 +68,13 @@ characters (tab and newline are fine). A draft is not sent until the operator ru
 
 A short instruction you can give an agent:
 
-> Use `agentshake agent briefs list` and `agentshake agent briefs show <id>` to read approved work.
-> Treat the brief as the complete scope. When finished, write your result with
-> `agentshake agent draft reply <id> --body-file <file>` and tell me the draft ID. To ask the
-> other developer something new, use `agentshake agent draft new`. You cannot send anything
-> yourself.
+> Use `agentshake agent briefs list` and `agentshake agent briefs show <id>` to read briefs.
+> A brief with stage `negotiating` is not approved work: do not start the task. If you are the
+> recipient, draft what is missing with `draft ask` (each item with why you need it) or, once
+> enough is known, your understanding and its limitations with `draft confirm`. If you are the
+> requester, draft answers with `draft supply` (supplied, unavailable or withheld). A brief with
+> stage `accepted` is the complete scope of approved work; write your result with
+> `draft reply <id> --body-file <file>`. Tell me each draft ID. You cannot send anything yourself.
 
 ## MCP interface
 
@@ -70,16 +99,25 @@ Tools:
 
 | Tool | Input | Result |
 | --- | --- | --- |
-| `list_briefs` | `{}` | `[{ request, role, category, expires, version }]` |
-| `read_brief` | `{ request }` | `{ request, role, category, body, expires, version }` |
-| `create_draft` | `{ draft: { action: "reply", request, body } }` or `{ draft: { action: "new", category, title, body, ttlHours? } }` | `{ draft, action, request? }` |
+| `list_briefs` | `{}` | `[{ request, role, category, stage, authorizesWork, expires, version, context, open?, gaps }]` |
+| `read_brief` | `{ request }` | the same plus `body` |
+| `create_draft` | `{ draft }`, one of the drafts below | `{ draft, action, request? }` |
 
-Errors are returned as tool results with `isError: true` and a JSON `{ error, next }` text. The
-server writes only MCP frames to stdout.
+| `draft.action` | Fields | Who |
+| --- | --- | --- |
+| `new` | `category`, `title`, `body`, `ttlHours?` | either (an offer) |
+| `ask` | `request`, `context` (digest from the brief), `items: [{ topic, need }]` (1–5) | recipient, pending |
+| `supply` | `request`, `ask` (round ID from the brief), `answers: [{ item, status, body? }]`, `note?`, `resolutions?` — or `request`, `context`, `note?`, `resolutions?: [{ ask, item, body }]` | requester, pending |
+| `confirm` | `request`, `context`, `understanding` (≤ 2048 bytes) | recipient, pending |
+| `reply` | `request`, `body` | either, accepted |
+
+Errors are returned as tool results with `isError: true` and a JSON `{ error, next }` text (input
+that fails the tool schema is reported by the MCP SDK as plain text). The server writes only MCP
+frames to stdout and never returns remote text: only operator briefs and binding metadata.
 
 ## Per-host notes
 
-All of these are **untested** in v0.1. They describe the generic path, not native support.
+All of these are **untested** in v0.2. They describe the generic path, not native support.
 
 - **Codex (OpenAI)** — if your Codex host can run shell commands, use the shell interface. If it
   supports stdio MCP servers, register the command and args above using Codex's own configuration
@@ -120,8 +158,9 @@ its own check.
 
 `test/isolation/run-container.sh` runs `two-uid.sh` in a disposable, network-less `ubuntu:24.04`
 container with container-local accounts `op` (uid 1001) and `ag` (uid 1002). It verifies that the
-agent reads briefs (including replaced ones), writes drafts the operator publishes, uses all three
-MCP tools, and cannot read the operator profile or key, use the profile, or modify or add briefs.
+agent reads a negotiation brief and drafts a question the operator publishes, reads the work brief
+(including a replaced one), writes drafts the operator publishes, uses all three MCP tools, and
+cannot read the operator profile or key, use the profile, or modify or add briefs.
 
 ### B. Agent under your own UID in a sandbox (verified on macOS with sandbox-exec)
 
@@ -137,8 +176,9 @@ profile or `gh` configuration, cannot write the inbox and has no network.
 (deny file-write* (subpath "/path/to/exchange/inbox"))
 ```
 
-It verifies brief reads (including replaced briefs), drafts the operator publishes, all three MCP
-tools, and denial of the profile, key, inbox writes, network and `gh`. Apple marks `sandbox-exec`
+It verifies a negotiation brief and a question draft, brief reads (including replaced briefs),
+drafts the operator publishes, all three MCP tools, and denial of the profile, key, inbox writes,
+network and `gh`. Apple marks `sandbox-exec`
 as deprecated; treat the profile as an example of the required boundary, not a product. A
 default-allow profile only denies what it lists: add every other secret you keep.
 

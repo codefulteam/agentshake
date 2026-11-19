@@ -2,6 +2,57 @@
 
 All notable changes are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] — release candidate
+
+Protocol 2: pre-accept context negotiation. Needs a fresh mailbox and a new profile; protocol 1
+data is never read, migrated or changed (see docs/protocol.md#versioning).
+
+### Added
+
+- Protocol 2 events `offer`, `ask` (1–5 typed items, each with why it is needed), `supply` (each
+  open question answered exactly once as `supplied`, `unavailable` or `withheld`, bound to that
+  round and the current context digest; or a note when no round is open), `confirm` (the
+  recipient's understanding, listing the still unresolved unavailable and withheld items as known limitations) and an
+  `accept` that cites the current confirmation and context digest.
+- Explicit gap resolution: a `supply` may carry `resolutions: [{ ask, item, body }]` naming an
+  earlier unresolved unavailable or withheld item of the same request, with the recovered content.
+  Confirmations list only the current unresolved items; history is kept.
+- Context revision and deterministic context digest per request; a supply makes the previous
+  confirmation stale; negotiation closes at acceptance.
+- Bounds: 5 questions per round, 4 supplies per request, one confirmation per context revision,
+  2048-byte understanding; capacity reservations for the open answer, the confirmation, accept,
+  reply and close.
+- Operator commands `ask`, `supply`, `confirm`; `publish` handles ask, supply and confirm drafts;
+  JSON payloads from files or stdin; `inbox`/`outbox`/`show` report the phase and whose move it is.
+- Negotiation briefs: `brief` on a pending request releases operator text with stage
+  `negotiating`, `authorizesWork: false` and binding metadata (context, open round, gaps), never
+  remote text. Stale negotiation briefs are removed; accept replaces them with the work brief.
+- Agent drafts `ask`, `supply`, `confirm` over the shell interface and MCP `create_draft`; bindings
+  default to the agent's brief and are checked at `publish`.
+- Offline demo and `scripts/demo.sh` run the full handshake with repeated clarification, an
+  unavailable and a withheld answer, a refused stale acceptance and completion.
+
+### Changed
+
+- Signing domain `agentshake/v2/`; genesis and event `version` 2; `create` is now `offer`.
+- GitHub ledger path `agentshake-mailbox-v2.json`; the v1 path is never read or written.
+- Profiles record `protocol: 2` in the pairing. A protocol 1 profile or ledger fails with exit code
+  2 before any lock, transport contact or write, with steps for 0.1.0 and for a new profile.
+- `--preview` runs the same transition and capacity checks as append on an unsigned copy, so
+  wrong-role, wrong-phase, budget and capacity errors are reported before a digest is offered. The
+  preview contract is explicit: never signs, sends, stages or releases; a fresh verified read may
+  advance the local rollback checkpoint.
+- Replay checks the capacity reservation at every historical prefix.
+- Every profile command except `key`, `exchange show` and `pending` refuses a protocol 1 profile
+  before any GitHub lookup, journal, exchange or outbox read.
+- Source split: `errors.ts`, `schema.ts`, `transitions.ts`, `negotiate.ts`, `view.ts`.
+
+### Known limitations
+
+- Same as 0.1.0 (no live GitHub verification, no sandboxing, no specific agent host tested,
+  Windows untested), plus: no backward reading of protocol 1 history, no key import into a new
+  profile, and no post-accept re-negotiation (cancel and send a new offer).
+
 ## [0.1.0] — release candidate
 
 First release.

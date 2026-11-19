@@ -1,7 +1,7 @@
 {
   "name": "agentshake",
-  "version": "0.1.0",
-  "description": "A handshake between your coding agents: operator-approved, signed requests and results between two developers over a private GitHub repository.",
+  "version": "0.2.0",
+  "description": "A handshake between your coding agents: operator-approved, signed context negotiation, requests and results between two developers over a private GitHub repository.",
   "keywords": [
     "coding-agents",
     "mcp",

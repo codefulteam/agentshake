@@ -13,8 +13,13 @@ export class FileTransport implements Transport {
   private open() {
     const db = database(this.path);
     try {
-      db.exec('CREATE TABLE IF NOT EXISTS mailbox (slot INTEGER PRIMARY KEY, id TEXT NOT NULL, rev INTEGER NOT NULL, raw BLOB)');
-      db.prepare('INSERT OR IGNORE INTO mailbox VALUES (1, ?, 0, NULL)').run(randomUUID());
+      // Initialize only a new file; an existing mailbox (of any protocol) is opened without writing.
+      if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'mailbox'").get()) {
+        db.exec('CREATE TABLE IF NOT EXISTS mailbox (slot INTEGER PRIMARY KEY, id TEXT NOT NULL, rev INTEGER NOT NULL, raw BLOB)');
+      }
+      if (!db.prepare('SELECT 1 FROM mailbox WHERE slot = 1').get()) {
+        db.prepare('INSERT OR IGNORE INTO mailbox VALUES (1, ?, 0, NULL)').run(randomUUID());
+      }
       return db;
     } catch (error) { db.close(); throw error; }
   }

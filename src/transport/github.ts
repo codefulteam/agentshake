@@ -10,8 +10,11 @@ export const repoNameSchema = z.string().max(140).regex(/^[a-z0-9](?:[a-z0-9-]{0
   .refine(repo => !['.', '..'].includes(repo.split('/')[1]!), 'Use owner/repo.');
 export const loginSchema = z.string().regex(/^[a-z0-9](?:[a-z0-9-]{0,38})$/i);
 
-/** The one fixed ledger path in the mailbox repository. */
-export const LEDGER_PATH = 'agentshake-mailbox-v1.json';
+/**
+ * The one fixed ledger path in the mailbox repository, per protocol version. Protocol 1
+ * (Agentshake 0.1) used agentshake-mailbox-v1.json; this release never reads or writes it.
+ */
+export const LEDGER_PATH = 'agentshake-mailbox-v2.json';
 const COMMIT_HEADLINE = 'Update Agentshake mailbox';
 const TIMEOUT = 15_000;
 const MAX_OUTPUT = 2 * 1024 * 1024;

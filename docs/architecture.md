@@ -5,17 +5,25 @@ about GitHub; only the CLI knows about terminals.
 
 ```
  src/cli.ts        operator CLI + agent CLI (Commander), approvals, human/JSON output
+ src/view.ts       request phase, whose move it is, next steps, escaped negotiation history
  src/mcp.ts        stdio MCP server for agents (list_briefs, read_brief, create_draft)
- src/demo.ts       offline two-profile demo
+ src/demo.ts       offline two-profile handshake demo
       │
- src/mailbox.ts    application: pairing, staged operations, conditional append, retries,
-      │            receipt verification, recovery, brief release
-      ├── src/domain.ts     protocol: schemas, canonical JSON, signatures, replay, transitions, caps
+ src/mailbox.ts    application: pairing, protocol check, staged operations, conditional append,
+      │            retries, receipt verification, recovery, brief release and pruning
+ src/negotiate.ts  builds ask/supply/confirm/accept payloads and checks draft bindings
+      ├── src/domain.ts       protocol: signing, genesis, replay, capacity, append, v1 detection
+      │     ├── src/schema.ts       wire schemas and limits
+      │     ├── src/transitions.ts  request state machine and context digest
+      │     └── src/errors.ts       error reasons and exit codes
       ├── src/local.ts      local state: profile DB, lock, exchange dirs, drafts, briefs, safe file IO
       └── src/transport/    adapters: types.ts (contract), github.ts, file.ts, memory.ts, index.ts
 ```
 
-`src/domain.ts` performs no I/O. `src/transport/*` never interprets the ledger. Adding a transport
+Every operator command except `key`, `exchange show` and `pending` first checks that the profile
+is a protocol 2 profile, before any login lookup, journal, exchange or outbox read and any write.
+
+`src/domain.ts`, `src/schema.ts`, `src/transitions.ts`, `src/negotiate.ts` and `src/view.ts` perform no I/O. `src/transport/*` never interprets the ledger. Adding a transport
 touches only `src/transport/` (see [transports.md](transports.md)).
 
 ## Trust boundaries
@@ -37,10 +45,15 @@ or validated locally, inside directories stored in the profile.
 
 1. **Prepare.** The CLI reads and verifies the ledger, builds the payload and an intent with a new
    operation ID (for `publish`, the draft ID), and computes an approval digest over the destination
-   channel, epoch, actor, request, expected revision, payload and, for a local brief, its text plus
-   the destination: the agent inbox and the exchange configuration ID.
+   channel, epoch, actor, request, expected revision, payload (which for negotiation events
+   carries the context digest, the answered round, any resolutions and, for a confirmation, the
+   current known limitations)
+   and, for a local brief, its text, the context it was written for and the destination: the agent
+   inbox and the exchange configuration ID.
 2. **Approve.** The operator confirms on the controlling terminal (`/dev/tty`), or passes
-   `--approve <digest>` that must match the digest printed by `--preview`.
+   `--approve <digest>` that must match the digest printed by `--preview`. Before printing a
+   digest, the CLI dry-runs the transition and capacity check on an unsigned copy (`preflight`).
+   A preview never signs, stages or releases; the verified read may advance the observed prefix.
 3. **Stage.** The operation (intent, approval digest, brief and its approved destination) is
    written to the profile journal in a SQLite transaction before any network contact. The same ID
    with a different approval is rejected. If the exchange was reconfigured after the review, the
@@ -53,13 +66,26 @@ or validated locally, inside directories stored in the profile.
    receipt retries the same intent (at most three writes in total). `unknown` or a failed re-read
    exits with code 5 and the `recover` command to run.
 6. **Release (local).** For `accept`, the brief step is tracked separately in the journal:
-   `released` (exclusive create, file and directory fsynced), `already-present`, `skipped-closed`
+   `released` (the work brief replaces any negotiation brief; file and directory fsynced),
+   `already-present` (an equal or newer work brief exists), `skipped-closed`
    (the request is no longer accepted), or `held-destination-changed` (the exchange was reconfigured
    after approval; nothing is written until the operator approves a brief for the new inbox with
    `agentshake brief`, after which the held step becomes `superseded`).
 
 If the intent can no longer apply (the request changed, closed or expired), the staged operation is
 discarded: since the observed prefix is pinned, no valid history can later contain it.
+
+## Negotiation briefs
+
+While a request is pending, `agentshake brief` releases a **negotiation brief**: operator text
+plus metadata (stage `negotiating`, `authorizesWork: false`, the context revision and digest, for
+both roles the open round ID and its item count, and the current known limitations by reference). It
+lets the agent draft questions, answers or an understanding without ever seeing remote text. Agent
+drafts name the context digest or round they were written for, and `publish` refuses them with exit
+code 4 if the request moved. Whenever the operator lists or shows requests, and after every event the
+operator records, Agentshake removes
+negotiation briefs that are stale (another context, an answered round, or no longer pending); they
+are never refreshed automatically. Accept replaces the negotiation brief with the work brief.
 
 ## Recovery
 
@@ -74,7 +100,8 @@ durable.
 ## Concurrency
 
 - **Across machines**: compare-and-swap on the transport revision (GitHub: `expectedHeadOid`).
-  Same-request races (accept/cancel, complete/cancel) have exactly one winner per revision;
+  Same-request races (ask/supply, confirm/supply, supply/accept, accept/cancel, complete/cancel)
+  have exactly one winner per revision;
   unrelated requests retry.
 - **Within a profile**: one mutation at a time, including `exchange configure`, enforced by an
   exclusive SQLite transaction on `lock.sqlite`. That is an OS file lock, released by the kernel if
@@ -85,12 +112,13 @@ durable.
 
 ```
 ~/.agentshake/            (or --profile / AGENTSHAKE_HOME), mode 0700
-  operator.sqlite         settings (key, pairing, provisional genesis, exchange paths),
+  operator.sqlite         settings (key, pairing with protocol 2, provisional genesis, exchange paths),
                           operations (journal), observation (observed prefix); mode 0600
   lock.sqlite             holds the OS lock while a mutation runs
   edit/                   transient brief editor files
-<inbox>/<request>.json    brief: request, role, category, body, expires, version
-<outbox>/<draft>.json     draft: action new|reply, ...
+<inbox>/<request>.json    brief: request, role, category, stage, authorizesWork, body, expires,
+                          version, context {revision, digest}, open?, gaps
+<outbox>/<draft>.json     draft: action new|reply|ask|supply|confirm, ...
 ```
 
 ## Output and errors

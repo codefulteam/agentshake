@@ -17,8 +17,10 @@ node dist/cli.js demo
 
 Tests:
 
-- `test/domain.test.mjs` — schemas, canonical encoding, golden vectors, transitions, caps.
-- `test/mailbox.test.mjs` — races, recovery, rollback/fork, locking, local file safety.
+- `test/domain.test.mjs` — schemas, canonical encoding, golden vectors, transitions, negotiation
+  rules and attacks, caps and reservations, protocol 1 refusal.
+- `test/mailbox.test.mjs` — races (including negotiation), recovery, rollback/fork, locking, local
+  file safety, negotiation briefs, non-destructive protocol 1 refusal.
 - `test/journey.test.mjs` — the CLI and stdio MCP end to end (set `AGENTSHAKE_BIN` to test an
   installed executable).
 - `test/github.test.mjs` — the GitHub adapter through the CLI against `test/fixtures/fake-gh.mjs`.
@@ -33,8 +35,9 @@ Isolation checks (not part of `npm test`):
 
 ## Guidelines
 
-- Keep protocol changes in `src/domain.ts` and document them in `docs/protocol.md`. Any change to
-  signed bytes requires a protocol version bump and new golden vectors.
+- Keep protocol changes in `src/schema.ts`, `src/transitions.ts` and `src/domain.ts`, and document
+  them in `docs/protocol.md`. Any change to signed bytes or transition rules requires a protocol
+  version bump, a fresh mailbox and new golden vectors; never reinterpret older signatures.
 - Transports implement only `src/transport/types.ts`; see `docs/transports.md`.
 - Never print remote text or raw subprocess diagnostics without escaping; never interpolate data
   into shell commands; bound every input.

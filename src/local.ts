@@ -2,13 +2,14 @@
 // operator-chosen exchange directories, drafts written by the agent, and briefs
 // written by the operator. Nothing here touches the network.
 import { createHash, randomUUID } from 'node:crypto';
-import { chmodSync, chownSync, closeSync, constants, fchmodSync, fstatSync, fsyncSync, linkSync, lstatSync, mkdirSync,
+import { chmodSync, chownSync, closeSync, constants, fchmodSync, fstatSync, fsyncSync, lstatSync, mkdirSync,
   openSync, opendirSync, readFileSync, readSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import * as z from 'zod';
-import { AgentshakeError, bodySchema, canonical, DEFAULT_TTL_HOURS, idSchema, integrity, invalid, MAX_BODY,
-  newKey, parsed, publicKeySchema, requestKind, temporary, titleSchema, ttlSchema } from './domain.js';
+import { AgentshakeError, answersSchema, bodySchema, canonical, DEFAULT_TTL_HOURS, digestSchema, gapSchema, idSchema,
+  integrity, invalid, itemsSchema, MAX_BODY, MAX_ITEMS, MAX_SUPPLY_TEXT, newKey, noteSchema, parsed, publicKeySchema,
+  requestKind, resolutionsSchema, supplyTextBytes, temporary, titleSchema, ttlSchema, understandingSchema } from './domain.js';
 import { database, utf8 } from './util.js';
 
 const exchangeSchema = z.strictObject({
@@ -24,13 +25,38 @@ export type Destination = { inbox: string; config: string };
 export const draftSchema = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('new'), category: requestKind, title: titleSchema,
     body: bodySchema, ttlHours: ttlSchema.default(DEFAULT_TTL_HOURS) }),
-  z.strictObject({ action: z.literal('reply'), request: idSchema, body: bodySchema })
+  z.strictObject({ action: z.literal('reply'), request: idSchema, body: bodySchema }),
+  /** Recipient: ask for missing context, bound to the context digest from the operator's brief. */
+  z.strictObject({ action: z.literal('ask'), request: idSchema, context: digestSchema, items: itemsSchema }),
+  /**
+   * Requester: answer the open question round named in the brief (`ask`), or, bound to a context,
+   * add a note and/or resolve earlier unavailable or withheld items with recovered content.
+   */
+  z.strictObject({ action: z.literal('supply'), request: idSchema, ask: idSchema.optional(), context: digestSchema.optional(),
+    answers: answersSchema.default([]), note: noteSchema.optional(), resolutions: resolutionsSchema.optional() })
+    .refine(value => (value.ask === undefined) !== (value.context === undefined), 'A supply names either the ask it answers or the context it adds to.')
+    .refine(value => value.ask !== undefined ? value.answers.length > 0
+      : value.answers.length === 0 && (value.note !== undefined || Boolean(value.resolutions?.length)),
+      'Answers need an ask; without an ask, give a note or resolutions and a context.')
+    .refine(value => supplyTextBytes(value.answers, value.note, value.resolutions) <= MAX_SUPPLY_TEXT,
+      `Answers, resolutions and note together exceed ${MAX_SUPPLY_TEXT} UTF-8 bytes.`),
+  /** Recipient: state its understanding of the exact context named in the brief. */
+  z.strictObject({ action: z.literal('confirm'), request: idSchema, context: digestSchema, understanding: understandingSchema })
 ]);
 export type Draft = z.infer<typeof draftSchema>;
+export const briefStages = ['negotiating', 'accepted', 'finished'] as const;
 export const briefSchema = z.strictObject({
   request: idSchema, role: z.enum(['recipient', 'sender']), category: requestKind,
-  body: bodySchema, expires: z.int().nonnegative(), version: z.int().nonnegative()
-});
+  /** negotiating: pre-accept, help the operator clarify only. accepted/finished: approved local work. */
+  stage: z.enum(briefStages), authorizesWork: z.boolean(),
+  body: bodySchema, expires: z.int().nonnegative(), version: z.int().nonnegative(),
+  /** Binding metadata only, never remote prose: the context this brief was written for. */
+  context: z.strictObject({ revision: z.int().min(1), digest: digestSchema }),
+  /** While a question round is open: its ID and item count (the requester answers it; the recipient waits). */
+  open: z.strictObject({ ask: idSchema, items: z.int().min(1).max(MAX_ITEMS) }).optional(),
+  /** Known limitations of the context (asked items answered unavailable or withheld), by reference. */
+  gaps: z.array(gapSchema).max(64)
+}).refine(value => value.authorizesWork === (value.stage !== 'negotiating'), 'A negotiation brief never authorizes work.');
 export type Brief = z.infer<typeof briefSchema>;
 /** Outcome of the local brief step of an operation, recorded separately from the remote receipt. */
 export const localStates = ['none', 'pending', 'released', 'already-present', 'skipped-closed', 'held-destination-changed',
@@ -331,6 +357,18 @@ export async function inputBody(path: string): Promise<string> {
   return parsed(bodySchema, text.replace(/\r?\n$/, ''), 'body');
 }
 
+/** Text from a file path or "-" for stdin, validated by `schema`. A single trailing newline is removed. */
+export async function inputText(path: string, schema: z.ZodType<string>, label: string, max: number): Promise<string> {
+  const text = path === '-' ? await readStdinBounded(max + 1) : readFileBounded(path, max + 1);
+  return parsed(schema, text.replace(/\r?\n$/, ''), label);
+}
+
+/** A bounded JSON document from a file path or "-" for stdin. */
+export async function inputJson(path: string): Promise<unknown> {
+  const text = path === '-' ? await readStdinBounded(FILE_CAP) : readFileBounded(path, FILE_CAP);
+  try { return JSON.parse(text); } catch { return invalid('The input file is not valid JSON.'); }
+}
+
 function syncDirectory(directory: string) {
   if (!posix) return;
   const fd = openSync(directory, constants.O_RDONLY);
@@ -338,11 +376,11 @@ function syncDirectory(directory: string) {
 }
 
 /**
- * Atomic write into a fixed directory: exclusive temp file, fsync, rename (or link for
- * create-only), then fsync of the directory. Files are group-readable only when the
+ * Atomic write into a fixed directory: exclusive temp file, fsync, rename, then fsync of
+ * the directory. Files are group-readable only when the
  * directory itself grants group access (the shared-group exchange mode).
  */
-function writeAtomic(directory: string, name: string, value: unknown, onlyIfAbsent = false): boolean {
+function writeAtomic(directory: string, name: string, value: unknown): boolean {
   const root = checkedDirectory(directory);
   const mode = posix && (statSync(root).mode & 0o070) !== 0 ? 0o640 : 0o600;
   const temp = join(root, '.tmp-' + randomUUID());
@@ -351,12 +389,8 @@ function writeAtomic(directory: string, name: string, value: unknown, onlyIfAbse
   try {
     try { if (posix) fchmodSync(fd, mode); writeFileSync(fd, canonical(value)); fsyncSync(fd); }
     finally { closeSync(fd); }
-    const target = join(root, name);
-    if (!onlyIfAbsent) { renameSync(temp, target); created = true; }
-    else {
-      try { linkSync(temp, target); created = true; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error; }
-    }
+    renameSync(temp, join(root, name));
+    created = true;
   } finally {
     try { unlinkSync(temp); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
@@ -369,7 +403,7 @@ export function createDraft(outbox: string, value: unknown) {
   const draft = parsed(draftSchema, value, 'draft');
   const id = randomUUID();
   writeAtomic(outbox, slot(id), draft);
-  return { draft: id, action: draft.action, ...(draft.action === 'reply' ? { request: draft.request } : {}) };
+  return { draft: id, action: draft.action, ...(draft.action !== 'new' ? { request: draft.request } : {}) };
 }
 
 export function loadDraft(outbox: string, id: string): Draft {
@@ -377,10 +411,18 @@ export function loadDraft(outbox: string, id: string): Draft {
   return parsed(draftSchema, jsonValue(text), 'draft');
 }
 
-/** Returns true if the brief file was written, false if create-only found one already present. */
-export function releaseBrief(inbox: string, brief: Brief, onlyIfAbsent = false) {
+/** Writes (atomically replaces) the brief file for its request. */
+export function releaseBrief(inbox: string, brief: Brief) {
   const entry = parsed(briefSchema, brief, 'local brief');
-  return writeAtomic(inbox, slot(entry.request), entry, onlyIfAbsent);
+  return writeAtomic(inbox, slot(entry.request), entry);
+}
+
+/** Operator-side look at a released brief, ignoring expiry. Undefined when absent or unreadable. */
+export function inspectBrief(inbox: string, id: string): Brief | undefined {
+  try {
+    const brief = briefSchema.safeParse(jsonValue(readFileBounded(join(checkedDirectory(inbox), slot(id)), FILE_CAP)));
+    return brief.success && brief.data.request === id ? brief.data : undefined;
+  } catch { return undefined; }
 }
 
 export function removeBrief(inbox: string, request: string) {
