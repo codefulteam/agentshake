@@ -38,7 +38,8 @@ jobs:
           WORK=$(mktemp -d)
           npm pack --silent --pack-destination "$WORK" >/dev/null
           (cd "$WORK" && mkdir prefix && cd prefix && npm init -y >/dev/null && npm install --silent ../agentshake-*.tgz)
-          docker pull ubuntu:24.04
+          # Build the test image (network needed only here), then run the harness with --network none.
+          bash test/isolation/build-image.sh
           NODE_LINUX=$(dirname "$(dirname "$(command -v node)")") PKG_PREFIX="$WORK/prefix" bash test/isolation/run-container.sh
       - name: Inspect package contents
         run: npm pack --dry-run --json | node -e "const [p]=JSON.parse(require('fs').readFileSync(0));const bad=p.files.map(f=>f.path).filter(f=>!/^(dist\/|docs\/|scripts\/demo\.sh$|README\.md$|LICENSE$|NOTICE$|SECURITY\.md$|CHANGELOG\.md$|CONTRIBUTING\.md$|CODE_OF_CONDUCT\.md$|npm-shrinkwrap\.json$|package\.json$)/.test(f));if(bad.length){console.error('unexpected files',bad);process.exit(1)}console.log(p.files.length,'files ok')"
