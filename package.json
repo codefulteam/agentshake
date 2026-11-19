@@ -1,0 +1,73 @@
+{
+  "name": "agentshake",
+  "version": "0.1.0",
+  "description": "A handshake between your coding agents: operator-approved, signed requests and results between two developers over a private GitHub repository.",
+  "keywords": [
+    "coding-agents",
+    "mcp",
+    "handoff",
+    "github",
+    "cli",
+    "ed25519",
+    "code-review"
+  ],
+  "homepage": "https://github.com/codefulteam/agentshake#readme",
+  "bugs": {
+    "url": "https://github.com/codefulteam/agentshake/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/codefulteam/agentshake.git"
+  },
+  "license": "Apache-2.0",
+  "author": "codefulteam <codefulteam@gmail.com>",
+  "type": "module",
+  "bin": {
+    "agentshake": "dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "docs/*.md",
+    "scripts/demo.sh",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "SECURITY.md",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "npm-shrinkwrap.json"
+  ],
+  "engines": {
+    "node": "^24.11.0 || ^26.0.0"
+  },
+  "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
+    "test:installed": "node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs",
+    "smoke": "bash scripts/smoke.sh",
+    "demo": "node dist/cli.js demo",
+    "prepack": "npm run build",
+    "test:isolation:macos": "bash test/isolation/sandbox-exec.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "commander": "15.1.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@types/node": "24.19.2",
+    "typescript": "5.9.3"
+  }
+}

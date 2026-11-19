@@ -1,0 +1,7 @@
+Agentshake
+Copyright 2026 codefulteam
+
+This product includes software developed by codefulteam (https://github.com/codefulteam/agentshake).
+It contains no source code copied from third-party projects. Runtime dependencies are
+installed separately by npm and keep their own licenses: @modelcontextprotocol/server
+(Apache-2.0), commander (MIT) and zod (MIT).
