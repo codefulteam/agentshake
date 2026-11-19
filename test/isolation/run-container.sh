@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Host wrapper: runs two-uid.sh in a disposable, network-less Linux container.
-#   bash test/isolation/build-image.sh   # once, needs network (see Dockerfile)
+#   bash test/isolation/build-image.sh   # once, pulls the pinned base image (see Dockerfile)
 #   NODE_LINUX=/path/to/node-vXX-linux-<arch>  PKG_PREFIX=/path/with/node_modules/agentshake  bash test/isolation/run-container.sh
 # PKG_PREFIX is an npm prefix where the packed tarball was installed. The run itself uses
 # --network none and --pull never: the image must already exist locally (IMAGE to
