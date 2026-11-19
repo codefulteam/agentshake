@@ -7,6 +7,7 @@ import { access, accountSchema, AgentshakeError, append, assertKey, bodySchema, 
 import { approvalDigest, type Brief, type Destination, inspectBrief, type LocalState, Profile, releaseBrief,
   removeBrief } from './local.js';
 import { endpointSchema, openTransport, type Endpoint, type Snapshot, type Transport } from './transport/index.js';
+import { expiredNext } from './transitions.js';
 
 const pairingSchema = z.strictObject({
   /** Protocol of the paired mailbox. Pairings without it were made by Agentshake 0.1 (protocol 1). */
@@ -298,19 +299,23 @@ export class Mailbox {
         return conflict('The request changed since the preview.', `Run \`agentshake show ${id}\` and review again.`);
       }
       const status = stateAt(request, this.clock());
-      if (status === 'expired' || status === 'canceled' || status === 'declined') {
-        conflict(`The request is ${status} and closed for local work.`);
-      }
+      if (status === 'expired') conflict('The request is expired and closed for local work.', expiredNext(request.sender === context.pairing.account));
+      if (status === 'canceled' || status === 'declined') conflict(`The request is ${status} and closed for local work.`, `Run \`agentshake show ${id}\`.`);
       if (canonical(plan.material.context) !== canonical(request.context) || plan.material.open !== (request.open ?? null)) {
         return conflict('The context changed since the preview.', `Run \`agentshake show ${id}\` and review again.`);
       }
       const expires = status === 'accepted' || status === 'pending' ? request.expires : this.clock() + 7 * DAY;
       releaseBrief(this.profile.exchange().inbox, briefFor(request, context.pairing.account, body, request.revision, expires));
-      // A fresh local approval supersedes any brief release held for a previous destination.
-      for (const entry of this.profile.unfinished()) {
-        const value = operationSchema.safeParse(entry.value);
-        if (entry.done && entry.local === 'held-destination-changed' && value.success && value.data.intent.request === id) {
-          this.profile.setLocal(entry.id, 'superseded');
+      // A fresh local approval of a work or result brief supersedes the local step of any operation for this
+      // request whose remote receipt is recorded but whose brief was not released (pending or held for a previous
+      // destination), whichever order the operator recovers in. Unrecorded operations are never touched.
+      if (stageOf(status) !== 'negotiating') {
+        for (const entry of this.profile.unfinished()) {
+          const value = operationSchema.safeParse(entry.value);
+          if (entry.done && (entry.local === 'held-destination-changed' || entry.local === 'pending') && value.success &&
+              value.data.brief !== undefined && value.data.intent.request === id) {
+            this.profile.setLocal(entry.id, 'superseded');
+          }
         }
       }
       return { request: id, state: status, stage: stageOf(status), briefReleased: true, inbox: this.profile.exchange().inbox };
@@ -322,8 +327,11 @@ export class Mailbox {
       version: number, status: string): LocalState {
     let local: LocalState;
     if (status !== 'accepted') local = 'skipped-closed';
-    else if (!sameDestination(destination, this.profile.destination())) local = 'held-destination-changed';
-    else {
+    else if (!sameDestination(destination, this.profile.destination())) {
+      // The operator already approved a newer work brief for the current inbox: nothing is left to hold.
+      const current = this.profile.get('exchange') === undefined ? undefined : inspectBrief(this.profile.exchange().inbox, request.id);
+      local = current && current.stage !== 'negotiating' && current.version >= version ? 'superseded' : 'held-destination-changed';
+    } else {
       // A negotiation brief is replaced by the work brief; an equal or newer work brief is kept.
       const existing = inspectBrief(destination.inbox, request.id);
       if (existing && existing.stage !== 'negotiating' && existing.version >= version) local = 'already-present';

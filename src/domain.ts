@@ -5,7 +5,7 @@ import { AgentshakeError, integrity, invalid, conflict, access, type Reason } fr
 import { ledgerSchema, intentSchema, parsed, publicKeySchema, PROTOCOL, MAX_LEDGER, MAX_BODY, MAX_EVENTS,
   MAX_PER_REQUEST, MAX_REQUESTS, MAX_CLOCK_SKEW, MAX_UNDERSTANDING, HOUR,
   type Actor, type Event, type Genesis, type Intent, type Ledger } from './schema.js';
-import { apply, canonical, currentConfirmation, live, sha256, stateAt, type Requests } from './transitions.js';
+import { apply, canonical, currentConfirmation, expiredNext, live, sha256, stateAt, type Requests } from './transitions.js';
 
 export * from './errors.js';
 export * from './schema.js';
@@ -173,7 +173,7 @@ function checkIntent(state: Replay, input: Intent, now: number, seal: (document:
   }
   const request = state.requests.get(intent.request);
   if (request && stateAt(request, now) === 'expired') {
-    conflict('The request has expired and is closed for new actions.');
+    conflict('The request has expired and is closed for new actions.', expiredNext(intent.actor === request.sender));
   }
   if (intent.payload.kind === 'offer' && now >= intent.timestamp + intent.payload.ttlHours * HOUR) {
     conflict('This prepared request expired before it was sent.', 'Create a new draft.');

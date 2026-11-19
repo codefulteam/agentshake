@@ -411,6 +411,24 @@ test('replay holds every historical prefix to the writer reservation, not only t
   assert.ok(found, 'constructed a history whose final snapshot fits but whose prefix violated the reservation');
 });
 
+test('expiry refusals from preflight and append name the next step for the acting role', () => {
+  let state = fresh();
+  const pending = randomUUID(), taken = randomUUID();
+  state = apply(state, event(state, '1', pending, offer()), alice);
+  state = accepted(state, taken);
+  const deadline = time + HOUR;
+  const expect = (fn, pattern) => assert.throws(fn, error => error.code === 4 && /expired/.test(error.message) && pattern.test(error.next));
+  // At the exact deadline, through the wall-clock check used by preflight and append (and so by recovery).
+  expect(() => preflight(state, event(state, '1', pending, note(state, pending)), deadline), /Send a new offer/);
+  expect(() => preflight(state, event(state, '2', pending, ask(state, pending, 1)), deadline), /Ask the requester/);
+  expect(() => preflight(state, event(state, '1', taken, { kind: 'reply', body: 'late' }), deadline), /Send a new offer/);
+  expect(() => preflight(state, event(state, '2', taken, { kind: 'reply', body: 'late' }), deadline), /Ask the requester/);
+  expect(() => append(state, event(state, '2', taken, { kind: 'reply', body: 'late' }), bob, deadline), /Ask the requester/);
+  // A signer whose timestamp is past the deadline is refused by the transition with the same advice.
+  expect(() => apply(state, event(state, '1', pending, note(state, pending), deadline), alice, deadline - 1000), /Send a new offer/);
+  expect(() => apply(state, event(state, '2', pending, ask(state, pending, 1), deadline), bob, deadline - 1000), /Ask the requester/);
+});
+
 test('preflight makes the same decision as append without a key or signature, and changes nothing', () => {
   let state = fresh();
   const request = randomUUID();

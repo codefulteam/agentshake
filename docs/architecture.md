@@ -70,7 +70,12 @@ or validated locally, inside directories stored in the profile.
    `already-present` (an equal or newer work brief exists), `skipped-closed`
    (the request is no longer accepted), or `held-destination-changed` (the exchange was reconfigured
    after approval; nothing is written until the operator approves a brief for the new inbox with
-   `agentshake brief`, after which the held step becomes `superseded`).
+   `agentshake brief`, after which the held step becomes `superseded`). A freshly approved work
+   brief supersedes the local step of any accept for that request whose remote receipt is recorded
+   but whose brief is still `pending` or `held-destination-changed`, in whichever order the operator
+   runs `brief` and `recover`; `recover` also reports `superseded` when the current inbox already
+   holds an equal or newer approved work brief. An operation whose remote receipt is not yet
+   recorded is never superseded, and an older brief is never written over a newer one.
 
 If the intent can no longer apply (the request changed, closed or expired), the staged operation is
 discarded: since the observed prefix is pinned, no valid history can later contain it.

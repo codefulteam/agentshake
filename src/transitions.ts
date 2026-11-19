@@ -94,6 +94,14 @@ export function gapsOf(request: Request): Gap[] {
 }
 const sameGaps = (a: readonly Gap[], b: readonly Gap[]) => canonical(a) === canonical(b);
 const CLOSED = 'Context negotiation closed at acceptance.';
+/** Role-aware guidance for an expired request: only the requester can send a new offer. */
+export const expiredNext = (requester: boolean) => requester
+  ? 'Send a new offer if it is still needed: your agent drafts it with `agentshake agent ... draft new`, then `agentshake publish <draft-id>`.'
+  : 'Ask the requester to send a new one if it is still needed.';
+/** How to complete with a reply of your own. */
+export const ownReplyNext = (request: string) =>
+  `Publish your own reply first (your agent drafts it with \`agentshake agent ... draft reply ${request}\`, then \`agentshake publish <draft-id>\`), ` +
+  `then cite its ID from \`agentshake show ${request}\`.`;
 const CLOSED_NEXT = 'Use replies for result discussion. To change scope, the requester cancels and sends a new offer.';
 
 export function apply(requests: Requests, event: Intent, roster: Genesis['roster']) {
@@ -118,8 +126,8 @@ export function apply(requests: Requests, event: Intent, roster: Genesis['roster
   if (request.revision !== event.revision) {
     conflict('The request changed since this action was prepared.', `Run \`agentshake show ${request.id}\` and decide again.`);
   }
-  if (!live(request)) conflict(`The request is already ${request.state}.`);
-  if (event.timestamp >= request.expires) conflict('The request has expired.');
+  if (!live(request)) conflict(`The request is already ${request.state}.`, `Run \`agentshake show ${request.id}\`.`);
+  if (event.timestamp >= request.expires) conflict('The request has expired.', expiredNext(event.actor === request.sender));
   if (event.timestamp < request.updated) conflict('The sender clock is behind the request history.');
   const recipient = event.actor === request.recipient;
   const at = event.timestamp;
@@ -232,7 +240,7 @@ export function apply(requests: Requests, event: Intent, roster: Genesis['roster
       if (!recipient) access('Only the recipient can complete.');
       if (request.state !== 'accepted' ||
           !request.replies.some(reply => reply.id === payload.reply && reply.actor === event.actor)) {
-        conflict('Complete must cite your own reply already published on this accepted request.');
+        conflict('Complete must cite your own reply already published on this accepted request.', ownReplyNext(request.id));
       }
       request.state = payload.outcome;
       request.result = payload.reply;

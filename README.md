@@ -210,7 +210,7 @@ setups are verified by scripts in `test/isolation/` (a two-account Linux contain
 | `exchange configure` | Set the agent inbox/outbox directories |
 | `inbox` / `outbox` [`--all`] | List open (or all) requests received / sent |
 | `show <request>` | Read a request, its negotiation and replies, escaped, with next steps |
-| `drafts` | List unsent agent drafts |
+| `drafts` [`--offline`] | List unsent agent drafts, marked stale or current; like `inbox`/`show`, it reads the mailbox and removes stale negotiation briefs (`--offline`: no mailbox read, nothing checked or removed) |
 | `publish <draft>` | Review, sign and send a draft (offer, ask, supply, confirm or reply) |
 | `ask <request>` | Recipient: ask for missing items (`--topic`/`--need` or `--items-file`) |
 | `supply <request>` | Requester: answer the open round (`--answers-file`) or add context (`--note-file`) |
@@ -265,7 +265,7 @@ content (`agentshake show` prints the ask ID and item number of every unresolved
 { "resolutions": [ { "ask": "<ask-id>", "item": 2, "body": "Found one log line: retry 6 of 5 after 0ms" } ] }
 ```
 
-Errors go to stderr (JSON with `--json`) with a `next` hint.
+Errors go to stderr (JSON with `--json`, including command-line parser errors) with a `next` hint.
 
 | Exit code | Meaning |
 | --- | --- |

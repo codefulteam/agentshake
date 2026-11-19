@@ -12,6 +12,7 @@ import { access, AgentshakeError, bodySchema, conflict, temporary, DEFAULT_TTL_H
 import { approvalDigest, createDraft, defaultProfile, inputBody, inputText, inputJson, listBriefs, loadDraft, Profile,
   readBrief, readFileBounded, type Brief } from './local.js';
 import { assertProfileProtocol, Mailbox, type Context, type Pairing, type Settled } from './mailbox.js';
+import { expiredNext } from './transitions.js';
 import { acceptPayload, answersFileSchema, askFileSchema, askPayload, confirmPayload, draftPayload, supplyPayload } from './negotiate.js';
 import { describePayload, indent, negotiationLines, nextSteps, summary } from './view.js';
 import { describeEndpoint, endpointSchema, GitHubTransport, type Endpoint } from './transport/index.js';
@@ -29,7 +30,10 @@ program.name('agentshake').version(VERSION, '-v, --version')
   .showHelpAfterError('(run with --help for usage)')
   .showSuggestionAfterError()
   .exitOverride()
-  .configureOutput({ writeErr: value => process.stderr.write(guard(value)), writeOut: value => process.stdout.write(value) })
+  // With --json, parser errors are reported once as the JSON error envelope (see the entry point), so
+  // Commander's own error text and help-after-error output are not written to stderr as well.
+  .configureOutput({ writeErr: value => { if (!jsonRequested()) process.stderr.write(guard(value)); },
+    writeOut: value => process.stdout.write(value) })
   .addHelpText('after', `
 Quick start (no GitHub account needed):
   agentshake demo                 run a complete two-person handshake offline
@@ -41,6 +45,12 @@ Exit codes: 0 ok, 2 usage/input, 3 auth/access, 4 state conflict, 5 temporary/un
 Docs: https://github.com/codefulteam/agentshake#readme`);
 
 const json = () => Boolean(program.opts().json);
+/** --json was given, even if parsing stopped before options were stored (parser errors). */
+function jsonRequested() {
+  const argv = process.argv.slice(2);
+  const end = argv.indexOf('--');
+  return (end === -1 ? argv : argv.slice(0, end)).includes('--json');
+}
 function emit(output: Output) {
   const next = output.next === undefined ? [] : Array.isArray(output.next) ? output.next : [output.next];
   if (json()) {
@@ -71,6 +81,8 @@ function withProfile<A extends unknown[]>(action: (mailbox: Mailbox, ...args: A)
 }
 
 // ---------- helpers ----------
+/** POSIX shell-quotes a value printed inside a suggested command (paths, logins, keys, IDs). */
+const quote = (value: string) => /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 const id = (value: string, label = 'ID') => parsed(idSchema, value, `${label} (expected a UUID)`);
 const short = (value: string) => value.slice(0, 8);
 function ago(ms: number, now: number) {
@@ -221,7 +233,7 @@ Example:
       }
       const context = await mailbox.pair(endpoint, peer, options.peerKey, mode, peerLabel);
       const me = context.snapshot.accountLabel ?? context.snapshot.account;
-      const target = endpoint.type === 'github' ? `--repo ${endpoint.repo}` : `--file ${endpoint.path}`;
+      const target = endpoint.type === 'github' ? `--repo ${quote(endpoint.repo)}` : `--file ${quote(endpoint.path)}`;
       const { publicKey } = mailbox.profile.key();
       return {
         data: { paired: true, mode, transport: endpoint.type, account: context.snapshot.account,
@@ -230,7 +242,7 @@ Example:
         human: `Paired (${mode}) on ${describeEndpoint(endpoint)}.\n` +
           `you: ${me}   peer: ${peerLabel ?? peer}   epoch: ${context.state.ledger.genesis.epoch}`,
         next: mode === 'init'
-          ? [`Peer runs: agentshake channel join ${target} --peer ${endpoint.type === 'github' ? me : context.snapshot.account} --peer-key ${publicKey}${endpoint.type === 'file' ? ` --account ${peer}` : ''}`,
+          ? [`Peer runs: agentshake channel join ${target} --peer ${quote(endpoint.type === 'github' ? me : context.snapshot.account)} --peer-key ${quote(publicKey)}${endpoint.type === 'file' ? ` --account ${quote(peer)}` : ''}`,
             'Then connect your agent: agentshake exchange configure --inbox <dir> --outbox <dir>']
           : ['agentshake exchange configure --inbox <dir> --outbox <dir>', 'agentshake doctor']
       };
@@ -283,7 +295,7 @@ Reconfiguring invalidates brief approvals that were not yet released.`)
     const paths = mailbox.configure({ inbox: options.inbox, outbox: options.outbox }, options.group);
     return { data: paths, human: `inbox:  ${paths.inbox}  (agent: read-only)\noutbox: ${paths.outbox}  (agent: read-write)\n` +
       `access: ${paths.access}${paths.gid !== undefined ? ` (group ${paths.gid})` : ''}   configuration ${paths.id}`,
-      next: `Give your agent: agentshake agent --inbox ${paths.inbox} --outbox ${paths.outbox} briefs list` };
+      next: `Give your agent: agentshake agent --inbox ${quote(paths.inbox)} --outbox ${quote(paths.outbox)} briefs list` };
   }));
 exchange.command('show').description('print the configured directories').action(withProfile(mailbox => {
   const paths = mailbox.profile.exchange();
@@ -356,9 +368,40 @@ function draftLine(draft: ReturnType<typeof loadDraft>) {
     case 'confirm': return `confirm understanding of ${draft.request}`;
   }
 }
+/**
+ * Whether a draft is bound to a context that no longer applies: an older context digest or answered
+ * question round, or a request that is closed for this action. `publish` stays the authority.
+ */
+function draftStale(draft: ReturnType<typeof loadDraft>, context: Context, now: number): boolean {
+  if (draft.action === 'new') return false;
+  const record = context.state.requests.get(draft.request);
+  if (!record) return true;
+  const status = stateAt(record, now);
+  if (draft.action === 'reply') return status !== 'accepted';
+  if (status !== 'pending') return true;
+  if (draft.action === 'supply' && draft.ask !== undefined) return record.open !== draft.ask;
+  return draft.context !== record.context.digest;
+}
 program.command('drafts').description('list unsent drafts your agent wrote to the outbox')
-  .action(withProfile(mailbox => {
+  .option('--offline', 'do not read the mailbox: stale drafts are not detected and stale briefs are not removed')
+  .addHelpText('after', `
+By default the mailbox is read and verified first, like \`inbox\` and \`show\`: negotiation briefs that no
+longer match the request are removed from the agent inbox, and every draft is marked stale or current.
+With --offline nothing is checked (stale: null); run \`agentshake drafts\` again when the mailbox is reachable.`)
+  .action(withProfile(async (mailbox, options: { offline?: boolean }) => {
     const { outbox } = mailbox.profile.exchange();
+    let context: Context | undefined;
+    if (!options.offline) {
+      try { context = await mailbox.sync(); }
+      catch (error) {
+        if (error instanceof AgentshakeError && error.reason !== 'integrity') {
+          throw new AgentshakeError(error.reason, error.message,
+            `${error.next ? `${error.next} ` : ''}To list drafts without checking the mailbox: agentshake drafts --offline`);
+        }
+        throw error;
+      }
+    }
+    const now = mailbox.clock();
     const rows: unknown[] = [];
     const lines: string[] = [];
     for (const name of readdirSync(outbox).slice(0, 512)) {
@@ -368,15 +411,22 @@ program.command('drafts').description('list unsent drafts your agent wrote to th
       if (saved?.done) continue;
       try {
         const draft = loadDraft(outbox, draftId);
-        rows.push({ draft: draftId, ...draft, staged: Boolean(saved) });
-        lines.push(`${draftId}  ${draftLine(draft)}${saved ? `  (approved, delivery unconfirmed: agentshake recover ${draftId})` : ''}`);
+        const stale = context ? draftStale(draft, context, now) : null;
+        rows.push({ draft: draftId, ...draft, staged: Boolean(saved), stale });
+        lines.push(`${draftId}  ${draftLine(draft)}${saved ? `  (approved, delivery unconfirmed: agentshake recover ${draftId})` : ''}` +
+          `${stale ? '  (stale: written for an older context or a closed request; ask your agent for a new draft)' : ''}`);
       } catch {
         rows.push({ draft: draftId, invalid: true });
         lines.push(`${draftId}  (invalid draft, will not be published)`);
       }
     }
-    return { data: rows, human: lines.length ? lines.join('\n') : 'No unsent drafts.',
-      next: lines.length ? 'agentshake publish <draft-id>' : undefined };
+    if (!context && lines.length) lines.push('(offline: drafts were not checked against the mailbox)');
+    const next: string[] = [];
+    if (rows.length) next.push('agentshake publish <draft-id>');
+    if (rows.some(row => (row as { stale?: boolean }).stale)) {
+      next.push('For a stale draft: agentshake show <request>, release a new brief with agentshake brief <request> --body-file <file>, and have your agent draft again');
+    }
+    return { data: rows, human: lines.length ? lines.join('\n') : 'No unsent drafts.', next: next.length ? next : undefined };
   }));
 
 program.command('pending').description('list operations that were approved but not confirmed')
@@ -438,17 +488,28 @@ const ROLE: Partial<Record<Payload['kind'], 'recipient' | 'sender'>> = {
   ask: 'recipient', confirm: 'recipient', accept: 'recipient', decline: 'recipient', complete: 'recipient',
   supply: 'sender', cancel: 'sender'
 };
+/** What the other role can do instead, so a wrong-role refusal always names a useful next step. */
+function roleNext(kind: Payload['kind'], record: Request): string {
+  const r = record.id;
+  if (ROLE[kind] === 'recipient') {
+    // The operator is the requester of this request.
+    if (kind === 'confirm') return `You are the requester. You can correct the context with \`agentshake supply ${r} --note-file <file>\`.`;
+    if (kind === 'complete') return `You are the requester; the recipient completes it. Follow the result with \`agentshake show ${r}\`, or withdraw with \`agentshake cancel ${r}\`.`;
+    return `You are the requester of this request. Answer questions or add context with \`agentshake supply ${r}\`, ` +
+      `withdraw it with \`agentshake cancel ${r}\`, or check its state with \`agentshake show ${r}\`.`;
+  }
+  return `You are the recipient of this request. Ask with \`agentshake ask ${r}\`, confirm with \`agentshake confirm ${r}\`, ` +
+    `or decline with \`agentshake decline ${r}\`; see \`agentshake show ${r}\`.`;
+}
 function assertRole(kind: Payload['kind'], record: Request, account: string) {
   const role = ROLE[kind];
   if (role === 'recipient' && record.recipient !== account) {
     access(kind === 'confirm' ? 'Only the recipient can confirm its own understanding.' : `Only the recipient can ${kind} this request.`,
-      kind === 'confirm' ? 'You can correct the context with `agentshake supply --note-file`.' : undefined);
+      roleNext(kind, record));
   }
-  if (role === 'sender' && record.sender !== account) access(`Only the requester can ${kind} this request.`);
+  if (role === 'sender' && record.sender !== account) access(`Only the requester can ${kind} this request.`, roleNext(kind, record));
 }
 
-/** Shell-quotes a value for the printed --approve command. */
-const quote = (value: string) => /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`;
 const FLAGS: [string, string][] = [['bodyFile', '--body-file'], ['itemsFile', '--items-file'], ['topic', '--topic'], ['need', '--need'],
   ['answersFile', '--answers-file'], ['noteFile', '--note-file'], ['understandingFile', '--understanding-file'],
   ['reply', '--reply'], ['outcome', '--outcome']];
@@ -472,7 +533,7 @@ function mutation(name: string, kind: Payload['kind'], description: string, make
     const record = context.state.requests.get(request);
     if (!record) return conflict('Unknown request.', 'Run `agentshake inbox --all` or `agentshake outbox --all`.');
     const status = stateAt(record, mailbox.clock());
-    if (status === 'expired') conflict('The request has expired and is closed.', 'Ask the requester to send a new one if it is still needed.');
+    if (status === 'expired') conflict('The request has expired and is closed.', expiredNext(record.sender === context.pairing.account));
     if (status !== 'pending' && status !== 'accepted') conflict(`The request is already ${status}.`, `agentshake show ${request}`);
     assertRole(kind, record, context.pairing.account);
     const payload = await make(record, options);
@@ -525,11 +586,12 @@ approvalOptions(program.command('publish <draft>').description('review an agent 
       record = context.state.requests.get(request);
       if (!record) return conflict('The draft names an unknown request.', 'Check the request ID the agent used.');
       const status = stateAt(record, mailbox.clock());
+      // Expiry first: an expired request gets role-aware advice for every draft kind, replies included.
+      if (status === 'expired') conflict('The request has expired and is closed.', expiredNext(record.sender === context.pairing.account));
       if (draft.action === 'reply' && status !== 'accepted') {
         conflict(`The draft replies to a request that is ${status}.`, status === 'pending'
           ? 'Before acceptance, use ask, supply and confirm; replies are for post-accept results.' : 'Replies need an accepted request.');
       }
-      if (status === 'expired') conflict('The request has expired and is closed.');
       if (draft.action !== 'reply') assertRole(draft.action, record, context.pairing.account);
       payload = draftPayload(record, draft);
     }
@@ -608,7 +670,8 @@ A negotiation brief is removed when the context changes; release a new one if ne
     const record = context.state.requests.get(request);
     if (!record) return conflict('Unknown request.', 'Run `agentshake inbox --all` or `agentshake outbox --all`.');
     const status = stateAt(record, mailbox.clock());
-    if (status === 'expired' || status === 'canceled' || status === 'declined') conflict(`The request is ${status} and closed for local work.`);
+    if (status === 'expired') conflict('The request is expired and closed for local work.', expiredNext(record.sender === context.pairing.account));
+    if (status === 'canceled' || status === 'declined') conflict(`The request is ${status} and closed for local work.`, `Run \`agentshake show ${request}\`.`);
     const body = await briefText(mailbox, request, options);
     const plan = mailbox.prepareBrief(context, request, body);
     const stage = status === 'pending' ? 'negotiation brief (no work authority; help clarify only)' : status === 'accepted' ? 'work brief' : 'result brief';
@@ -763,10 +826,71 @@ agent.command('mcp').description('serve list_briefs, read_brief and create_draft
 });
 
 // ---------- entry ----------
+const PARSER_MESSAGES: Record<string, string> = {
+  'commander.unknownCommand': 'Unknown command.',
+  'commander.unknownOption': 'Unknown option.',
+  'commander.missingArgument': 'A required argument is missing.',
+  'commander.optionMissingArgument': 'An option is missing its value.',
+  'commander.missingMandatoryOptionValue': 'A required option is missing.',
+  'commander.invalidArgument': 'An option or argument value is not allowed.',
+  'commander.excessArguments': 'Too many arguments.',
+  'commander.conflictingOption': 'These options cannot be combined.',
+  'commander.help': 'No command given.'
+};
+/** The defined command names on the command line (never other argument values), for parser-error hints. */
+function argvCommandPath(): string {
+  const argv = process.argv.slice(2);
+  const names: string[] = [];
+  let command: Command = program;
+  for (let index = 0; index < argv.length; index++) {
+    const token = argv[index];
+    if (token === '--') break;
+    if (token.startsWith('-')) {
+      const option = command.options.find(candidate => candidate.long === token || candidate.short === token);
+      if (option && (option.required || option.optional) && !token.includes('=')) index++;
+      continue;
+    }
+    const sub = command.commands.find(candidate => candidate.name() === token || candidate.aliases().includes(token));
+    if (!sub) break;
+    names.push(sub.name());
+    command = sub;
+  }
+  return names.join(' ');
+}
+/** The command being run, as its fixed name path (never user arguments). */
+let active: Command | undefined;
+program.hook('preAction', (_root, command) => { active = command; });
+function commandPath() {
+  const names: string[] = [];
+  for (let command: Command | null = active ?? null; command && command !== program; command = command.parent) names.unshift(command.name());
+  return names.join(' ');
+}
+/** Command-scoped guidance for errors that carry no specific next step. */
+function fallbackNext(reason: AgentshakeError['reason']): string {
+  const path = commandPath();
+  const help = `agentshake ${path ? `${path} ` : ''}--help`;
+  switch (reason) {
+    case 'usage': return `See the expected arguments and input format: ${help}`;
+    case 'access': return `Check your role and setup: \`agentshake doctor\`; usage: ${help}`;
+    case 'conflict': return 'Review the current state with `agentshake inbox --all` or `agentshake outbox --all`, then `agentshake show <request>`.';
+    case 'temporary': return 'Retry. If an operation was approved, run `agentshake pending` and `agentshake recover <operation>`.';
+    case 'integrity': return 'Stop and verify the mailbox with `agentshake doctor`; do not retry blindly.';
+  }
+}
 try { await program.parseAsync(); }
 catch (error) {
-  if (error instanceof CommanderError) process.exitCode = error.exitCode === 0 ? 0 : 2;
-  else {
+  if (error instanceof CommanderError) {
+    process.exitCode = error.exitCode === 0 ? 0 : 2;
+    if (error.exitCode !== 0 && (json() || jsonRequested())) {
+      // Fixed message and a command-scoped next; Commander's text (which can quote the arguments) is kept
+      // only as a bounded, escaped `detail` and never placed in `next`.
+      const path = argvCommandPath();
+      const help = `agentshake ${path ? `${path} ` : ''}--help`;
+      process.stderr.write(safeJson({ error: { reason: 'usage', exitCode: 2, message: PARSER_MESSAGES[error.code] ?? 'Invalid command line.',
+        next: error.code === 'commander.unknownCommand' ? `See the available commands: ${help}` : `See the usage: ${help}`,
+        ...(error.code === 'commander.help' ? {} : { detail: error.message.slice(0, 300) }) } }) + '\n');
+    }
+  } else {
     const os = error as NodeJS.ErrnoException;
     const known = error instanceof AgentshakeError ? error : new AgentshakeError(
       os.code === 'EACCES' || os.code === 'EPERM' ? 'access' : 'usage',
@@ -776,9 +900,10 @@ catch (error) {
       os.code === 'EROFS' ? 'The directory is read-only.' :
       'Local operation failed. Check paths and permissions, and whether another agentshake command holds the profile.');
     process.exitCode = known.code;
+    const next = known.next ?? fallbackNext(known.reason);
     if (process.env.AGENTSHAKE_DEBUG && !(error instanceof AgentshakeError)) process.stderr.write(String((error as Error).stack) + '\n');
     process.stderr.write(json()
-      ? safeJson({ error: { reason: known.reason, exitCode: known.code, message: known.message, next: known.next } }) + '\n'
-      : guard(`error: ${known.message}${known.next ? `\nnext: ${known.next}` : ''}`) + '\n');
+      ? safeJson({ error: { reason: known.reason, exitCode: known.code, message: known.message, next } }) + '\n'
+      : guard(`error: ${known.message}\nnext: ${next}`) + '\n');
   }
 }

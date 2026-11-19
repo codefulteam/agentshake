@@ -17,5 +17,5 @@ BIN="$WORK/prefix/node_modules/.bin/agentshake"
 "$BIN" --help >/dev/null
 "$BIN" demo --json >/dev/null
 AGENTSHAKE="$BIN" bash "$ROOT/scripts/demo.sh" >/dev/null
-AGENTSHAKE_BIN="$BIN" node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs
+AGENTSHAKE_BIN="$BIN" node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs test/fixes.test.mjs test/guidance.test.mjs
 echo "smoke ok: $BIN"

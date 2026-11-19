@@ -111,9 +111,14 @@ Tools:
 | `confirm` | `request`, `context`, `understanding` (≤ 2048 bytes) | recipient, pending |
 | `reply` | `request`, `body` | either, accepted |
 
-Errors are returned as tool results with `isError: true` and a JSON `{ error, next }` text (input
-that fails the tool schema is reported by the MCP SDK as plain text). The server writes only MCP
-frames to stdout and never returns remote text: only operator briefs and binding metadata.
+Errors come in two kinds. An error raised by Agentshake inside a tool (for example no approved
+brief, or a missing outbox) is a tool result with `isError: true` whose text is JSON
+`{ error, next, exitCode }`. Arguments that do not match the advertised input schema (a malformed
+UUID, an unknown field, a wrong type) are rejected by the MCP SDK before Agentshake runs: that
+result is also `isError: true`, but its text is the SDK's plain validation message naming the
+field, with no `next`; correct the arguments against the tool's input schema and call again. The
+server writes only MCP frames to stdout and never returns remote text: only operator briefs and
+binding metadata.
 
 ## Per-host notes
 

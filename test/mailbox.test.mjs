@@ -301,6 +301,66 @@ test('brief approvals are bound to the exchange destination; remote receipt and 
   assert.throws(() => readBrief(third.inbox, closing, time), /No approved brief/);
 });
 
+test('R26: a fresh work brief settles a recorded but unreleased accept the same way in either recovery order', async t => {
+  // Causal setup: accept lands remotely, then the local release fails (the inbox root is obstructed by a file),
+  // and the operator reconfigures the exchange before settling it.
+  async function obstructedAccept(f, tag) {
+    const first = f.b.configure({ inbox: join(f.root, `in-${tag}-1`), outbox: join(f.root, `out-${tag}-1`) });
+    const request = randomUUID();
+    await f.a.execute(await plan(f.a, request, create({ ttlHours: 2 })));
+    const accept = await confirmThenAccept(f.b, request, 'Old work brief text');
+    rmSync(first.inbox, { recursive: true }); writeFileSync(first.inbox, 'obstruction');
+    await assert.rejects(() => f.b.execute(accept));
+    rmSync(first.inbox); mkdirSync(first.inbox, { mode: 0o700 });
+    const op = f.profiles.bob.operation(accept.intent.event);
+    assert.deepEqual([op.done, op.local], [true, 'pending'], 'remote recorded, local release pending');
+    const events = (await f.b.read()).state.ledger.events.length;
+    const second = f.b.configure({ inbox: join(f.root, `in-${tag}-2`), outbox: join(f.root, `out-${tag}-2`) });
+    return { request, accept, first, second, events };
+  }
+  const fresh = 'Fresh work brief text';
+  const settle = async (f, s) => {
+    const again = await f.b.recover(s.accept.intent.event);
+    assert.equal(again.localBrief, 'superseded', 'repeated recover is idempotent');
+    assert.deepEqual(f.profiles.bob.unfinished(), [], 'no stale pending item remains');
+    assert.equal(readBrief(s.second.inbox, s.request, time).body, fresh, 'the fresh brief is intact');
+    assert.deepEqual(listBriefs(s.first.inbox, time), [], 'older text is never released to the old inbox');
+    assert.equal((await f.b.read()).state.ledger.events.length, s.events, 'no ledger write');
+  };
+
+  const f = await fixture(t);
+  // Order 1: brief, then recover. (0.2.0: recover held the step and kept asking for an approval already given.)
+  const one = await obstructedAccept(f, 'a');
+  await f.b.updateBrief(one.request, fresh, await briefPlan(f.b, one.request, fresh));
+  assert.equal(f.profiles.bob.operation(one.accept.intent.event).local, 'superseded');
+  assert.equal((await f.b.recover(one.accept.intent.event)).localBrief, 'superseded');
+  await settle(f, one);
+  // Order 2: recover, then brief.
+  const two = await obstructedAccept(f, 'b');
+  assert.equal((await f.b.recover(two.accept.intent.event)).localBrief, 'held-destination-changed');
+  await f.b.updateBrief(two.request, fresh, await briefPlan(f.b, two.request, fresh));
+  await settle(f, two);
+
+  // An unrecorded write is never superseded by a brief; once recorded, a newer brief in the current inbox wins.
+  let outage = false;
+  const crashing = new Mailbox(f.profiles.bob, {
+    read: () => outage ? Promise.reject(new Error('offline')) : f.raw.bob.read(),
+    async write(head, raw) { await f.raw.bob.write(head, raw); outage = true; return 'unknown'; }
+  }, () => time);
+  const request = randomUUID();
+  await f.a.execute(await plan(f.a, request, create({ ttlHours: 2 })));
+  const accept = await confirmThenAccept(f.b, request, 'Old work brief text');
+  await assert.rejects(() => crashing.execute(accept), /could not be read/);
+  const third = f.b.configure({ inbox: join(f.root, 'in-c'), outbox: join(f.root, 'out-c') });
+  await f.b.updateBrief(request, fresh, await briefPlan(f.b, request, fresh));
+  const unrecorded = f.profiles.bob.operation(accept.intent.event);
+  assert.deepEqual([unrecorded.done, unrecorded.local], [false, 'pending'], 'unrecorded operation untouched by the brief');
+  const recovered = await f.b.recover(accept.intent.event);
+  assert.deepEqual([recovered.remote, recovered.localBrief], ['recorded', 'superseded']);
+  assert.equal(readBrief(third.inbox, request, time).body, fresh);
+  assert.deepEqual(f.profiles.bob.unfinished(), []);
+});
+
 test('exchange access modes: private 0700/0600 and group 2750/2770 with group-readable files', async t => {
   const f = await fixture(t);
   const priv = f.b.configure({ inbox: join(f.root, 'p-in'), outbox: join(f.root, 'p-out') });

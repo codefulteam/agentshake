@@ -2,6 +2,33 @@
 
 All notable changes are documented here. This project follows [Semantic Versioning](https://semver.org/).
 
+## Unreleased (local candidate, not released)
+
+Fixes from the 0.2.0 scenario evaluation. Protocol, ledger format and version are unchanged.
+
+### Fixed
+
+- A freshly approved work brief now settles a recorded accept whose local release was still
+  pending, in either order of `brief` and `recover`, instead of leaving a held item that asks for an
+  approval already given. Unrecorded operations are never superseded.
+- The `channel join` and agent commands printed by `channel init` and `exchange configure` are
+  shell-quoted, so they run as printed with spaces, apostrophes or non-ASCII characters in paths.
+- `agentshake drafts` reads the mailbox like `inbox` and `show`: it removes stale negotiation
+  briefs and marks each draft `stale`. `drafts --offline` lists without reading the mailbox; an
+  unreadable mailbox is reported with that option as the next step. Previews still never remove briefs.
+- Every CLI error now carries a `next` hint, as documented: role-specific for wrong-role actions,
+  the command's help for invalid input, the publish-then-cite path for completing with your own
+  reply, and a command-scoped fallback otherwise. With `--json`, command-line parser errors
+  (unknown command or option, missing argument or value, disallowed choice) are reported once as
+  the JSON error envelope with exit code 2 and a `next` naming the command's `--help`, instead of
+  Commander's plain text.
+- MCP: errors raised by Agentshake inside a tool are JSON `{ error, next, exitCode }`. Arguments that
+  fail the advertised input schema keep the MCP SDK's standard plain-text validation result (no
+  `next`); the tool descriptions and docs now say so, and the schema fields carry descriptions.
+- Expiry hints depend on the role (the requester is told to send a new offer, the recipient to ask
+  the requester for one) at every entry point: operator actions, `publish` of any draft kind
+  including replies, `brief`, and recovery of an operation staged before the request expired.
+
 ## [0.2.0] — release candidate
 
 Protocol 2: pre-accept context negotiation. Needs a fresh mailbox and a new profile; protocol 1

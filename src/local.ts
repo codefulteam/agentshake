@@ -320,7 +320,7 @@ export function readFileBounded(path: string, limit: number): string {
   catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === 'ELOOP' || code === 'EMLINK') return invalid('Symlinked input is refused.');
-    if (code === 'ENOENT') return invalid(`File not found: ${path}`);
+    if (code === 'ENOENT') return invalid(`File not found: ${path}`, 'Check the path, or pass - to read from standard input.');
     throw error;
   }
   try {
