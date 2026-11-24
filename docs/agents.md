@@ -17,7 +17,8 @@ operator profile or call `gh`. Publishing, accepting and completing are operator
 | Shell commands (`agentshake agent briefs …`, `draft …`) | Tested through the installed executable |
 | MCP stdio server with the official MCP TypeScript SDK client 2.4.0 | Tested: initialize, list tools, all four tools (including ask, supply and confirm drafts), error results |
 | Isolation: agent as a separate UID (`--group`) in a Linux container; agent under `sandbox-exec` on macOS | Tested by `test/isolation/` scripts (see [Isolation](#isolation)) |
-| Any specific agent host (Codex, Claude, Grok, Kimi, DeepSeek-based agents, others) | **Not tested.** Expected to work wherever the host can run shell commands or launch a stdio MCP server, but unverified |
+| Claude Code CLI 2.1.330 and Codex CLI 0.171.0 through the [plugin](../plugins/agentshake/README.md) | Tested on macOS in fresh private host homes: offline install, skill discovery, MCP handshake; Codex tool calls through its app server. See the plugin README for exactly what each host was verified for |
+| Any other agent host (Claude Desktop, ChatGPT desktop, Codex IDE extension, Grok, Kimi, DeepSeek-based agents, others) | **Not tested.** Expected to work wherever the host can run shell commands or launch a stdio MCP server, but unverified |
 
 If you verify a host, please contribute the exact configuration and version (see
 [CONTRIBUTING.md](../CONTRIBUTING.md)). We list a host as tested only with a reproducible record.
@@ -129,15 +130,32 @@ field, with no `next`; correct the arguments against the tool's input schema and
 server writes only MCP frames to stdout and never returns remote text: only operator briefs and
 binding metadata.
 
+## Host plugin
+
+For Claude Code and Codex, [`plugins/agentshake`](../plugins/agentshake/README.md) bundles this MCP
+server with a workflow skill, so you need no hand-written host configuration. The plugin runs
+`scripts/agentshake-mcp.mjs`. It finds your installed engine and reads the exchange directories from
+`AGENTSHAKE_INBOX`/`AGENTSHAKE_OUTBOX` or a binding file (`~/.config/agentshake/agent.json`), then
+runs `agentshake agent --inbox … --outbox … mcp` with a minimal environment. The binding and the
+profile are separate: the binding names the two exchange directories, never the profile. The
+launcher refuses directories that overlap a declared profile root (`AGENTSHAKE_HOME`,
+`~/.agentshake`) or that sit at or below an `operator.sqlite`. It cannot detect an undeclared
+profile nested inside a chosen directory. These are setup checks, not isolation. The binding must
+be owned by the account the host runs as. See the plugin README for same-account versus
+separate-account setup.
+
 ## Per-host notes
 
-All of these are **untested** in v0.2. They describe the generic path, not native support.
+Apart from the plugin hosts listed above, all of these are **untested**. They describe the generic
+path, not native support.
 
-- **Codex (OpenAI)** — if your Codex host can run shell commands, use the shell interface. If it
-  supports stdio MCP servers, register the command and args above using Codex's own configuration
-  format.
-- **Claude (Anthropic), e.g. Claude Code or Claude Desktop** — use the shell interface where shell
-  access is available, or register the stdio MCP server in the host's MCP configuration.
+- **Codex (OpenAI)** — use the plugin (CLI and desktop app; plugins are not available in the IDE
+  extension or in ChatGPT web). Otherwise, if your Codex host can run shell commands, use the shell
+  interface. If it supports stdio MCP servers, register the command and args above using Codex's
+  own configuration format.
+- **Claude (Anthropic)** — in Claude Code, use the plugin. In Claude Desktop or other Claude hosts,
+  use the shell interface where shell access is available, or register the stdio MCP server in the
+  host's MCP configuration.
 - **Grok (xAI)** — Grok is a model; what matters is the agent host you run it in. Use the shell or
   MCP interface if that host offers either.
 - **Kimi (Moonshot AI)** — same: use the shell interface, or stdio MCP if your Kimi-based host

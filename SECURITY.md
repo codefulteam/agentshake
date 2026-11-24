@@ -71,6 +71,14 @@ answers (supplied, unavailable or withheld) and a confirmed understanding.
   directories. Two setups are verified by `test/isolation/` scripts: a separate UID in a Linux
   container, and a macOS `sandbox-exec` profile under the same UID. Your own setup is not verified
   by us; check it as described in [docs/agents.md](docs/agents.md#isolation).
+- **Host plugin.** The Claude Code / Codex plugin (`plugins/agentshake`) starts the agent MCP server
+  as a child of the agent host. Its launcher passes the engine only PATH, HOME, locale and temp
+  variables. It refuses exchange directories that overlap a declared profile root
+  (`AGENTSHAKE_HOME`, `~/.agentshake`) or sit at or below an `operator.sqlite`, and binding files
+  that others can write. These checks run once on trusted paths; they are not a sandbox and they
+  are not race-resistant. This keeps tokens and the profile out of the server process. It does not
+  isolate the host itself: an unrestricted host can still read your profile. The binding file
+  chooses which engine executable runs, so keep it `0600`.
 - **Confidentiality from GitHub or repository admins.** The ledger is plaintext JSON in a private
   repository. GitHub, repository admins and anyone with read access can read it, and Git history
   keeps it after revocation. It is not end-to-end encrypted and cannot delete anything.

@@ -205,6 +205,23 @@ answers, confirmations and results). It never returns remote text. Example host 
 See [docs/agents.md](docs/agents.md) for shell and MCP setup with Codex, Claude, Grok, Kimi,
 DeepSeek-based and other agents, and for what has and has not been tested.
 
+### Claude Code and Codex plugin
+
+[`plugins/agentshake`](plugins/agentshake/README.md) packages this MCP server and a workflow skill
+as one local plugin for Claude Code and Codex. It runs your installed engine and does no network
+fetch. You point it at the exchange directories once, with a small binding file. This repository
+is also a plugin catalog for both hosts:
+
+```sh
+claude plugin marketplace add ./agentshake && claude plugin install agentshake@agentshake
+codex plugin marketplace add ./agentshake && codex plugin add agentshake@agentshake
+```
+
+The agent still only drafts; you publish. Local stdio plugins need a host that runs on your
+machine. They do not work in ChatGPT web or other cloud agents. See the
+[plugin README](plugins/agentshake/README.md) for prerequisites, offline installation and the
+hosts that have been verified.
+
 **Isolation is your job.** Agentshake cannot stop an agent that runs unrestricted as your user
 from reading your profile or using `gh` directly. Run the agent as a separate OS account (with
 `--group`), or in a sandbox or container that only sees the two exchange directories. Two such
@@ -343,9 +360,16 @@ installed package tarball, plus scripted isolation checks:
   inbox writes. On macOS, an agent under a `sandbox-exec` profile with the same UID gets the same
   results plus denied network and `gh`.
 
+- Host plugin (`plugins/agentshake`): the contract check, reproducible archives, and the launcher
+  through the official MCP client (the same tools and schemas, a minimal child environment, and
+  refusals). Claude Code 2.1.330 and Codex CLI 0.171.0 (macOS) installed it offline into fresh
+  private homes and connected the MCP server. A Claude Code model session used the skill and the
+  tools, and Codex served tool calls through its app server. See the
+  [plugin README](plugins/agentshake/README.md#where-it-works).
+
 Not yet verified: two real GitHub accounts on a real private repository, organization and branch
 rule behavior, fine-grained tokens, Windows, CI on GitHub Actions, your own sandbox or host setup,
-and any agent host other than the reference MCP client.
+and any agent host or host surface not listed above.
 
 ## Roadmap
 
@@ -383,6 +407,7 @@ See [docs/protocol.md#versioning](docs/protocol.md#versioning) for the exact rul
 - [docs/architecture.md](docs/architecture.md) — layers, trust boundaries, recovery
 - [docs/transports.md](docs/transports.md) — GitHub, file and memory adapters; writing a new one
 - [docs/agents.md](docs/agents.md) — connecting coding agents via shell or MCP
+- [plugins/agentshake](plugins/agentshake/README.md) — the Claude Code and Codex plugin (skill plus local MCP server)
 - [SECURITY.md](SECURITY.md) — threat model and reporting
 - [CONTRIBUTING.md](CONTRIBUTING.md) · [CHANGELOG.md](CHANGELOG.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 

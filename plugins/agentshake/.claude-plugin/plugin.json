@@ -1,0 +1,11 @@
+{
+  "name": "agentshake",
+  "displayName": "Agentshake",
+  "version": "0.1.0",
+  "description": "Work on operator-approved Agentshake briefs and write signed-handshake drafts (offers, questions, answers, confirmations, results) for your operator to review and publish.",
+  "author": { "name": "codefulteam", "email": "codefulteam@gmail.com" },
+  "homepage": "https://github.com/codefulteam/agentshake/tree/main/plugins/agentshake#readme",
+  "repository": "https://github.com/codefulteam/agentshake",
+  "license": "Apache-2.0",
+  "keywords": ["agentshake", "handoff", "mcp", "code-review", "operator-approval"]
+}

@@ -1,0 +1,7 @@
+Agentshake plugin for coding-agent hosts
+Copyright 2026 codefulteam
+
+This plugin contains only its manifests, a skill and a dependency-free launcher written by
+codefulteam (https://github.com/codefulteam/agentshake). It bundles no third-party code. It runs a
+separately installed agentshake engine package, whose own NOTICE lists the runtime dependencies
+bundled in that package.

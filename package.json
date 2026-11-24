@@ -58,13 +58,15 @@
     "build": "npm run clean && tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/cli.js',0o755)\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test --test-concurrency=1 test/*.test.mjs",
-    "test:installed": "node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs test/fixes.test.mjs test/guidance.test.mjs test/conformance-lifecycle.test.mjs test/fix.test.mjs",
+    "test:installed": "node --test --test-concurrency=1 test/journey.test.mjs test/github.test.mjs test/fixes.test.mjs test/guidance.test.mjs test/conformance-lifecycle.test.mjs test/fix.test.mjs test/plugin.test.mjs",
     "smoke": "bash scripts/smoke.sh",
     "demo": "node dist/cli.js demo",
     "prepack": "npm run build",
     "test:isolation:macos": "bash test/isolation/sandbox-exec.sh",
     "spec:fixtures": "npm run build && node scripts/spec-fixtures.mjs",
-    "spec:check": "node scripts/spec-fixtures.mjs --check"
+    "spec:check": "node scripts/spec-fixtures.mjs --check",
+    "plugin:check": "node scripts/plugin-pack.mjs",
+    "plugin:pack": "node scripts/plugin-pack.mjs --out plugin-dist"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",

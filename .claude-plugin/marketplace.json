@@ -1,0 +1,14 @@
+{
+  "name": "agentshake",
+  "description": "The Agentshake plugin for Claude Code: operator-approved briefs and drafts through a local stdio MCP server.",
+  "owner": { "name": "codefulteam", "email": "codefulteam@gmail.com" },
+  "plugins": [
+    {
+      "name": "agentshake",
+      "source": "./plugins/agentshake",
+      "description": "Read operator-approved Agentshake briefs and write drafts for the operator to publish.",
+      "version": "0.1.0",
+      "category": "development"
+    }
+  ]
+}

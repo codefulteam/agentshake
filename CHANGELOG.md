@@ -28,6 +28,13 @@ and golden vectors as 0.2.0. The package version is independent of the protocol 
   `capabilities`, `runConformance`, `normalizeSummary`, and schema IDs.
 - `docs/local.md`: offline installation and a personal workflow on one machine without GitHub,
   with the exact limits of the unauthenticated file profile.
+- `plugins/agentshake` 0.1.0, a Claude Code and Codex plugin. It is versioned separately and is
+  not part of the npm package. It contains a shared `agentshake` workflow skill and the existing
+  agent MCP server, run through a dependency-free launcher that uses the installed engine (0.3.x)
+  with a minimal environment and refuses unsafe exchange bindings. The repository is also a plugin
+  catalog for both hosts (`.claude-plugin/marketplace.json`, `.agents/plugins/marketplace.json`).
+  `npm run plugin:check` validates the plugin contract, and `npm run plugin:pack` writes
+  reproducible archives. No engine, protocol or MCP tool changes.
 
 ### Review fixes (before release)
 

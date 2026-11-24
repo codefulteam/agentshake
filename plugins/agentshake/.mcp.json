@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "agentshake": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/agentshake-mcp.mjs"]
+    }
+  }
+}

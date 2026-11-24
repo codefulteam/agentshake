@@ -9,3 +9,4 @@ coverage/
 .env
 .env.*
 npm-debug.log*
+plugin-dist/
